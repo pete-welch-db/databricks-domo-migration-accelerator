@@ -48,11 +48,47 @@ def _short(fqn: str) -> str:
     return fqn.split(".")[-1]
 
 
-def render(result: Dict[str, Any], language: str = "sql") -> str:
-    """Render the transpile `result` as SDP source in `language` ('sql'|'python')."""
+def render(result: Dict[str, Any], language: str = "sql",
+           mapping: Dict[str, Any] = None) -> str:
+    """Render the transpile `result` as SDP source in `language` ('sql'|'python').
+
+    If `mapping` (an accepted industry-model mapping) is provided, a CONFORMED
+    view is appended that projects the gold contract columns to the canonical
+    industry-model column names — the governed silver the customer conforms to.
+    The parity gold view is untouched (the connector re-point still works).
+    """
     if language == "python":
-        return _render_python(result)
-    return _render_sql(result)
+        code = _render_python(result)
+    else:
+        code = _render_sql(result)
+    if mapping and mapping.get("target_table") and mapping.get("columns"):
+        code += "\n" + _render_conformed(result, mapping, language)
+    return code
+
+
+def _render_conformed(result: Dict[str, Any], mapping: Dict[str, Any],
+                      language: str) -> str:
+    """A view projecting gold columns → the canonical industry-model names."""
+    st = result.get("structured", {})
+    gold_fqn = st.get("gold_view_fqn", "")
+    gold_name = _short(gold_fqn) if gold_fqn else "gold"
+    target = mapping["target_table"]                     # e.g. customer.party
+    conformed = f"{gold_name}_conformed"
+    pairs = [(c["domo_column"], c["target_column"])
+             for c in mapping["columns"] if c.get("target_column")]
+    if not pairs:
+        return ""
+    if language == "python":
+        sel = ",\n            ".join(f"col('{d}').alias('{t}')" for d, t in pairs)
+        return (f"# Conformed to industry model {mapping['industry']} · {target}\n"
+                f"@dlt.table(comment='Conformed to {target} ({mapping['industry']}).')\n"
+                f"def {conformed}():\n"
+                f"    return dlt.read('{gold_name}').select(\n            {sel})\n")
+    sel = ",\n       ".join(f"`{d}` AS `{t}`" for d, t in pairs)
+    return (f"-- Conformed to industry model {mapping['industry']} · {target}\n"
+            f"-- Projects the gold contract to canonical {target} column names.\n"
+            f"CREATE OR REFRESH MATERIALIZED VIEW {conformed} AS\n"
+            f"SELECT {sel}\nFROM {gold_name};\n")
 
 
 # --------------------------------------------------------------------------- #

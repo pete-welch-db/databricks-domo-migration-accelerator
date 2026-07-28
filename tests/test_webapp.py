@@ -140,3 +140,27 @@ def test_config_llm_and_host_roundtrip():
     assert u["llm_endpoint"] == "my-endpoint"
     assert u["databricks_host"].startswith("https://")
     client.post("/api/config", json={"llm_endpoint": "", "databricks_host": ""})
+
+
+def test_map_lineage_view_and_override():
+    m = client.get("/api/map/lineage/customer360").json()
+    assert m["target_table"] and m["columns"] and m["model_tables"]
+    # each column carries ranked candidates for the dropdown
+    assert all("candidates" in c for c in m["columns"])
+    # override + accept persists and wins
+    r = client.post("/api/map/lineage/customer360", json={
+        "force_table": "customer.party", "overrides": {"region": "city"},
+        "accept": True}).json()
+    reg = [c for c in r["columns"] if c["domo_column"] == "region"][0]
+    assert reg["target_column"] == "city" and reg["source"] == "override"
+    assert r.get("saved") is True
+
+
+def test_saved_mapping_conforms_generated_sdp():
+    # save a mapping, then the draft SDP includes a conformed view w/ canonical names
+    client.post("/api/map/lineage/customer360", json={
+        "force_table": "customer.party", "overrides": {"region": "city"}, "accept": True})
+    d = client.get("/api/draft/customer360?language=sql").json()
+    assert d["sdp"]["conformed"] is True
+    assert "_conformed" in d["sdp"]["code"]
+    assert "AS `city`" in d["sdp"]["code"]

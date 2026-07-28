@@ -291,6 +291,7 @@ function loadBuild() {
 }
 function openBuild(a) {
   state.buildAsset = a; state.draft = null;
+  state.map = null; state.mapTable = null; state.mapOverrides = {}; state.mapIndustry = null;
   $("#build-empty").classList.add("hidden");
   $("#build-detail").classList.remove("hidden");
   $("#bd-title").textContent = a.name;
@@ -303,6 +304,7 @@ function buildStage(stage) {
   $(`#stage-${stage}`).classList.remove("hidden");
   $$("#build-detail .step").forEach(s => s.classList.toggle("active", s.dataset.stage === stage));
   if (stage === "analyze") loadAnalyze();
+  if (stage === "map") loadMap();
   if (stage === "draft" && !state.draft) loadDraft();
   if (stage === "create") prefillCreate();
 }
@@ -352,6 +354,90 @@ function renderGraph(g) {
 }
 const trunc = (s, n) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
 
+// ------------------------------------------------------------ map ---------
+async function loadMap(reload) {
+  const wrap = $("#map-table-wrap");
+  if (!reload) wrap.innerHTML = `<div class="loading">Mapping to the industry model…</div>`;
+  // industry options come from the configured selection (fallback: all)
+  if (!state.mapIndustry) {
+    const chosen = (state.config.industry_models || "").split(",").map(s => s.trim()).filter(Boolean);
+    state.mapIndustry = chosen[0] || "automotive";
+  }
+  const url = `/api/map/lineage/${state.buildAsset.triplet_lineage_id}?industry=${state.mapIndustry}`
+    + (state.mapTable ? `&force_table=${encodeURIComponent(state.mapTable)}` : "");
+  const m = await api(url);
+  state.map = m;
+  if (m.error) { wrap.innerHTML = `<div class="loading">${esc(m.error)}</div>`; return; }
+  state.mapTable = m.target_table;
+  state.mapOverrides = state.mapOverrides || {};
+  renderMapControls(m);
+  renderMapGrid(m);
+}
+function renderMapControls(m) {
+  // industry dropdown (configured models, else this model)
+  const chosen = (state.config.industry_models || "").split(",").map(s => s.trim()).filter(Boolean);
+  const inds = chosen.length ? chosen : [m.industry];
+  $("#map-industry").innerHTML = inds.map(i =>
+    `<option value="${i}" ${i === m.industry ? "selected" : ""}>${i}</option>`).join("");
+  // table dropdown grouped-ish by domain, current selected
+  $("#map-table").innerHTML = (m.model_tables || []).map(t =>
+    `<option value="${t.fqn}" ${t.fqn === m.target_table ? "selected" : ""}>${t.domain} · ${t.table} (${t.columns})</option>`).join("");
+  const mapped = m.mapped_count, total = m.columns.length;
+  const pct = total ? Math.round(mapped / total * 100) : 0;
+  $("#map-cov").innerHTML = `<div class="cov-num">${mapped}/${total}</div>
+    <div class="cov-lbl">columns mapped</div>
+    <div class="cov-bar"><span style="width:${pct}%"></span></div>`;
+}
+function renderMapGrid(m) {
+  const cols = m.table_columns.map(c => c.name);
+  const rows = m.columns.map(c => {
+    const opts = ['<option value="">— unmapped —</option>'].concat(
+      cols.map(name => {
+        const cand = c.candidates.find(x => x.name === name);
+        const pct = cand ? Math.round(cand.confidence * 100) : null;
+        const sel = c.target_column === name ? "selected" : "";
+        return `<option value="${name}" ${sel}>${name}${pct != null ? ` · ${pct}%` : ""}</option>`;
+      })).join("");
+    const conf = Math.round((c.confidence || 0) * 100);
+    const band = c.source === "override" ? "ov" : c.target_column ? (c.confidence >= 0.55 ? "hi" : "lo") : "no";
+    const badge = c.source === "override" ? "✎ manual"
+      : c.target_column ? (c.needs_review ? "review" : "suggested") : "unmapped";
+    return `<tr class="maprow ${band}">
+      <td class="mc-domo"><span class="mc-name">${esc(c.domo_column)}</span>
+        <span class="mc-type">${c.domo_type}</span></td>
+      <td class="mc-arrow">→</td>
+      <td class="mc-target">
+        <select data-col="${esc(c.domo_column)}" class="map-sel">${opts}</select>
+      </td>
+      <td class="mc-conf"><div class="confbar ${band}"><span style="width:${conf}%"></span></div>
+        <span class="conf-badge ${band}">${badge}</span></td>
+    </tr>`;
+  }).join("");
+  $("#map-grid").innerHTML =
+    `<thead><tr><th>Domo column</th><th></th><th>${esc(m.target_table)}</th><th>confidence</th></tr></thead>
+     <tbody>${rows}</tbody>`;
+  $$("#map-grid .map-sel").forEach(sel => sel.onchange = () => {
+    state.mapOverrides[sel.dataset.col] = sel.value;
+    applyOverrides();
+  });
+}
+async function applyOverrides() {
+  const m = await api(`/api/map/lineage/${state.buildAsset.triplet_lineage_id}`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ industry: state.mapIndustry, force_table: state.mapTable,
+      overrides: state.mapOverrides, accept: false }) });
+  state.map = m; renderMapControls(m); renderMapGrid(m);
+}
+async function saveMap() {
+  const btn = $("#btn-save-map"); btn.disabled = true; btn.textContent = "Saving…";
+  await api(`/api/map/lineage/${state.buildAsset.triplet_lineage_id}`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ industry: state.mapIndustry, force_table: state.mapTable,
+      overrides: state.mapOverrides, accept: true }) });
+  btn.disabled = false; btn.textContent = "✓ Saved";
+  setTimeout(() => { btn.textContent = "Save mapping"; }, 1500);
+}
+
 async function loadDraft() {
   $("#draft-gate").innerHTML = `<div class="loading">Transpiling…</div>`; $("#sql-view").textContent = "";
   state.draftLang = state.draftLang || (state.config && state.config.pipeline_language) || "sql";
@@ -359,10 +445,12 @@ async function loadDraft() {
   state.draft = d; const g = d.reconciliation.gate, bm = d.counts;
   $("#draft-gate").className = `gate ${g}`;
   const gateLabel = g === "PASS" ? "PASS" : (g === "NEEDS_REVIEW" ? "NEEDS REVIEW (SQL DataFlow)" : g);
+  const conformed = d.sdp && d.sdp.conformed
+    ? `<li>✓ conformed view appended — gold projected to your saved industry-model mapping</li>` : "";
   $("#draft-gate").innerHTML = `<span ${tip("gate")}>Reconcile gate: ${gateLabel}</span><ul>
     <li>${bm.gold_columns} gold columns — schema parity with the Domo DataSet</li>
     <li>${bm.beast_modes_translated}/${bm.beast_modes_total} Beast Modes → <b>metric view</b> (governed semantic layer)</li>
-    <li>${bm.ir_nodes} transform steps from ${bm.input_datasets} sources</li></ul>`;
+    <li>${bm.ir_nodes} transform steps from ${bm.input_datasets} sources</li>${conformed}</ul>`;
   renderDraftTabs();
 }
 function renderDraftTabs() {
@@ -489,6 +577,9 @@ $("#cfg-save").onclick = saveConfig;
 $("#cfg-refresh-patterns").onclick = refreshPatterns;
 $("#btn-refresh-models").onclick = refreshModels;
 $("#model-search").oninput = renderModels;
+$("#btn-save-map").onclick = saveMap;
+$("#map-industry").onchange = e => { state.mapIndustry = e.target.value; state.mapTable = null; state.mapOverrides = {}; loadMap(); };
+$("#map-table").onchange = e => { state.mapTable = e.target.value; state.mapOverrides = {}; loadMap(true); };
 
 (async function init() {
   state.config = await api("/api/config");

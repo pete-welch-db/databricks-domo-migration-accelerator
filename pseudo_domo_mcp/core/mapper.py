@@ -95,19 +95,36 @@ def pick_table(model: IndustryModel, domo_columns: List[str],
 
 def map_columns(model: IndustryModel, domo_schema: List[Dict[str, str]],
                 prefer_domain: Optional[str] = None,
-                threshold: float = 0.34) -> Dict[str, Any]:
-    """Map a Domo DataSet schema onto the best-fit industry-model table.
+                threshold: float = 0.34,
+                force_table_fqn: Optional[str] = None,
+                overrides: Optional[Dict[str, str]] = None,
+                candidate_limit: int = 8) -> Dict[str, Any]:
+    """Map a Domo DataSet schema onto an industry-model table.
 
-    domo_schema : list of {"name","type"} (Domo column contract).
-    Returns the chosen table, per-column mapping w/ confidence, and unmapped
-    columns flagged for human review.
+    domo_schema     : list of {"name","type"} (Domo column contract).
+    force_table_fqn : pin the target table (else auto-pick best fit).
+    overrides       : {domo_column: target_column_name | ""} human choices that
+                      win over the suggestion ("" = deliberately unmapped).
+
+    Returns a unified per-column view with the suggested target, confidence,
+    review flag, and a ranked candidate list (for a UI dropdown), plus the
+    model's table catalog + the chosen table's columns so the UI can offer
+    table/column re-selection. Back-compat keys (target_table, mappings,
+    mapped_count) are preserved.
     """
+    overrides = overrides or {}
     domo_cols = [c["name"] for c in domo_schema]
-    table, table_cov = pick_table(model, domo_cols, prefer_domain)
+    if force_table_fqn:
+        table = model.table_by_fqn(force_table_fqn)
+        table_cov = 0.0
+    else:
+        table, table_cov = pick_table(model, domo_cols, prefer_domain)
     if table is None:
-        return {"target_table": None, "mappings": [], "unmapped": domo_cols,
-                "table_coverage": 0.0}
+        return {"target_table": None, "columns": [], "mappings": [],
+                "unmapped": domo_cols, "table_coverage": 0.0,
+                "model_tables": _model_tables(model), "table_columns": []}
 
+    columns: List[Dict[str, Any]] = []
     mappings: List[Dict[str, Any]] = []
     unmapped: List[str] = []
     for col in domo_schema:
@@ -117,32 +134,58 @@ def map_columns(model: IndustryModel, domo_schema: List[Dict[str, str]],
         ]
         scored.sort(key=lambda x: x[1], reverse=True)
         best_tc, best = scored[0]
-        if best >= threshold:
-            mappings.append({
-                "domo_column": col["name"],
-                "domo_type": col.get("type", "STRING"),
-                "target": f"{table.fqn}.{best_tc.name}",
-                "target_type": best_tc.spark_type,
-                "confidence": best,
-                "needs_review": best < 0.55,
-                "alternatives": [
-                    {"target": f"{table.fqn}.{tc.name}", "confidence": s}
-                    for tc, s in scored[1:3] if s > 0
-                ],
-            })
+        candidates = [{"name": tc.name, "spark_type": tc.spark_type,
+                       "confidence": s, "comment": tc.comment[:120]}
+                      for tc, s in scored[:candidate_limit]]
+
+        ov = overrides.get(col["name"])
+        if ov is not None:                      # explicit human choice
+            chosen = ov or None
+            conf = 1.0 if ov else 0.0
+            source = "override"
+        elif best >= threshold:
+            chosen, conf, source = best_tc.name, best, "suggested"
+        else:
+            chosen, conf, source = None, best, "low"
+
+        tcol = next((c for c in table.columns if c.name == chosen), None)
+        entry = {
+            "domo_column": col["name"],
+            "domo_type": col.get("type", "STRING"),
+            "target_column": chosen,
+            "target": f"{table.fqn}.{chosen}" if chosen else None,
+            "target_type": tcol.spark_type if tcol else None,
+            "confidence": round(conf, 3),
+            "needs_review": (source != "override") and (chosen is None or conf < 0.55),
+            "source": source,
+            "candidates": candidates,
+        }
+        columns.append(entry)
+        if chosen:
+            mappings.append(entry)
         else:
             unmapped.append(col["name"])
 
     return {
         "industry": model.industry,
         "target_table": table.fqn,
+        "target_domain": table.domain,
         "target_table_comment": _table_comment(table),
         "table_coverage": table_cov,
         "mapped_count": len(mappings),
         "unmapped_count": len(unmapped),
+        "columns": columns,
         "mappings": mappings,
         "unmapped": unmapped,
+        "model_tables": _model_tables(model),
+        "table_columns": [{"name": c.name, "spark_type": c.spark_type}
+                          for c in table.columns],
     }
+
+
+def _model_tables(model: IndustryModel) -> List[Dict[str, str]]:
+    return [{"fqn": t.fqn, "domain": t.domain, "table": t.table,
+             "columns": len(t.columns)} for t in model.tables]
 
 
 def _table_comment(table: ModelTable) -> str:

@@ -32,9 +32,12 @@ def list_industry_models(industry: str = "") -> Dict[str, Any]:
     }
 
 
-def industry_model_map(dataset_id: str,
+def industry_model_map(dataset_id: str = "",
+                       lineage_id: str = "",
                        industry: str = "automotive",
-                       prefer_domain: Optional[str] = None) -> Dict[str, Any]:
+                       prefer_domain: Optional[str] = None,
+                       force_table_fqn: Optional[str] = None,
+                       overrides: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
     """Draft-map a Domo DataSet's columns onto a canonical industry-model table.
 
     Conforms a Domo output DataSet to the Databricks Industry Data Model
@@ -42,46 +45,56 @@ def industry_model_map(dataset_id: str,
     rather than a like-for-like copy.
 
     Args:
-        dataset_id: the Domo DataSet id to map (must have a schema — i.e. a
-            derived/output dataset or one with a known column contract).
-        industry: target model, "automotive" (default) or "transport_shipping".
-        prefer_domain: optional canonical domain to bias table selection
-            (e.g. "customer", "aftersales"); if omitted it's inferred from the
-            dataset name.
+        dataset_id: the Domo DataSet id to map; OR
+        lineage_id: a Build lineage id — its output DataSet is mapped.
+        industry: target model key (e.g. "automotive", "transport_shipping").
+        prefer_domain: bias table selection; inferred from name if omitted.
+        force_table_fqn: pin the target table (user re-selected it in the UI).
+        overrides: {domo_column: target_column | ""} human column choices.
 
-    Returns the chosen target table, per-column mapping with confidence scores,
-    and any unmapped columns flagged for human review. Draft-grade suggestions.
+    Returns per-column mappings with confidence + ranked candidates, plus the
+    model's table catalog and the chosen table's columns for UI re-selection.
     """
     p = get_provider()
 
-    # Resolve the DataSet's schema. Output datasets carry it via their lineage
-    # triplet schema doc; otherwise use the census-level column list if present.
+    if lineage_id and not dataset_id:
+        dataset_id = _output_dataset_for_lineage(p, lineage_id) or ""
     schema_cols = _resolve_schema(p, dataset_id)
     if schema_cols is None:
-        return {"error": f"No column schema available for dataset '{dataset_id}'. "
-                         "Provide an output/derived DataSet with a known schema, "
-                         "or wire the live provider for full DataSet detail."}
+        return {"error": f"No column schema available for '{dataset_id or lineage_id}'. "
+                         "Needs an output/derived DataSet with a known schema."}
 
     ds = next((d for d in p.list_datasets() if d["id"] == dataset_id), {})
-    if prefer_domain is None:
+    if prefer_domain is None and not force_table_fqn:
         prefer_domain = classifier.classify_domain(ds.get("name", ""))
 
     model = load_model(industry)
-    result = map_columns(model, schema_cols, prefer_domain=prefer_domain)
+    result = map_columns(model, schema_cols, prefer_domain=prefer_domain,
+                         force_table_fqn=force_table_fqn, overrides=overrides)
     result["dataset_id"] = dataset_id
     result["dataset_name"] = ds.get("name")
+    result["lineage_id"] = lineage_id
     result["inferred_domain"] = prefer_domain
     result["note"] = (
-        "Draft mapping (name+type+comment similarity). Cross-domain blends "
-        "(e.g. Customer 360) will leave aggregate columns unmapped against a "
-        "single table — those belong to sibling domains and are flagged for "
-        "human review, not dropped."
+        "Draft mapping (name+type+comment similarity). Re-pick the target table "
+        "or any column; cross-domain blends leave some columns for a sibling "
+        "table — flagged, not dropped."
     )
     return result
 
 
+def _output_dataset_for_lineage(provider, lineage_id: str) -> Optional[str]:
+    for df in provider.list_dataflows():
+        if df.get("_triplet_lineage_id") == lineage_id:
+            outs = df.get("outputDatasetIds", [])
+            return outs[0] if outs else None
+    return None
+
+
 def _resolve_schema(provider, dataset_id: str):
     """Best-effort column contract for a dataset id (list of {name,type})."""
+    if not dataset_id:
+        return None
     # 1) If it's the output of a lineage triplet, use the triplet schema doc.
     for df in provider.list_dataflows():
         if dataset_id in df.get("outputDatasetIds", []) and df.get("_triplet_lineage_id"):

@@ -48,7 +48,8 @@ def retarget_sql(sql: str, catalog: str, schema_prefix: str = "") -> str:
 
 def write_bundle(result: Dict[str, Any], out_root: str,
                  catalog: str, schema: str,
-                 profile: str = "", language: str = "sql") -> Dict[str, Any]:
+                 profile: str = "", language: str = "sql",
+                 mapping: Dict[str, Any] = None) -> Dict[str, Any]:
     """Materialize a deployable DAB for a transpiled lineage.
 
     Args:
@@ -70,7 +71,7 @@ def write_bundle(result: Dict[str, Any], out_root: str,
     # 1) Write the real SDP source (Lakeflow Declarative Pipeline) in the chosen
     #    language, retargeted to the configured catalog.
     written: List[str] = []
-    sdp_code = sdp.render(result, language)
+    sdp_code = sdp.render(result, language, mapping=mapping)
     sdp_code = retarget_sql(sdp_code, catalog, schema_prefix="")
     sdp_path = os.path.join(src_dir, f"pipeline.{ext}")
     with open(sdp_path, "w", encoding="utf-8") as fh:

@@ -145,13 +145,33 @@
             </div>
             <div class="stepper">
               <button class="step active" data-stage="analyze"><span>1</span> Analyze</button>
-              <button class="step" data-stage="draft"><span>2</span> Draft</button>
-              <button class="step" data-stage="create"><span>3</span> Create</button>
+              <button class="step" data-stage="map"><span>2</span> Map</button>
+              <button class="step" data-stage="draft"><span>3</span> Draft</button>
+              <button class="step" data-stage="create"><span>4</span> Create</button>
             </div>
             <section id="stage-analyze" class="stage">
               <div id="graph-wrap" class="graph-wrap"></div>
               <div id="analyze-meta" class="meta-row"></div>
-              <div class="stage-actions"><button class="btn primary" data-goto="draft">Draft the code →</button></div>
+              <div class="stage-actions"><button class="btn primary" data-goto="map">Map to model →</button></div>
+            </section>
+            <section id="stage-map" class="stage hidden">
+              <div class="map-head">
+                <div class="map-target">
+                  <label>Industry model
+                    <select id="map-industry"></select>
+                  </label>
+                  <label>Target table
+                    <select id="map-table"></select>
+                  </label>
+                </div>
+                <div id="map-cov" class="map-cov"></div>
+              </div>
+              <div id="map-table-wrap"><table id="map-grid" class="map-grid"></table></div>
+              <div class="stage-actions">
+                <button class="btn ghost" data-goto="analyze">← Back</button>
+                <button id="btn-save-map" class="btn ghost">Save mapping</button>
+                <button class="btn primary" data-goto="draft">Draft the code →</button>
+              </div>
             </section>
             <section id="stage-draft" class="stage hidden">
               <div id="draft-gate" class="gate"></div>

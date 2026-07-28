@@ -112,10 +112,12 @@ def draft(lineage_id: str, language: str = "") -> Dict[str, Any]:
     result = pipeline.run(lineage_id, fixtures,
                           os.path.join(tmp, "out"), os.path.join(tmp, "sql"))
     lang = language or cfgmod.load_config().pipeline_language
+    saved_map = _saved_mapping(lineage_id)
     if result.get("structured"):
         result["sdp"] = {
             "language": lang,
-            "code": sdp.render(result, lang),
+            "code": sdp.render(result, lang, mapping=saved_map),
+            "conformed": bool(saved_map),
         }
     return result
 
@@ -147,7 +149,8 @@ def create(lineage_id: str, payload: Optional[Dict[str, Any]] = Body(default=Non
 
     os.makedirs(_BUNDLE_ROOT, exist_ok=True)
     bundle = write_bundle(result, _BUNDLE_ROOT, catalog, schema,
-                          profile=profile, language=language)
+                          profile=profile, language=language,
+                          mapping=_saved_mapping(lineage_id))
 
     # Optional: commit the bundle to a linked repo (opt-in via the repo field).
     if payload.get("repo") and cfg.git_provider:
@@ -201,9 +204,66 @@ def set_config(updates: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
     return cfgmod.save_config(updates).public()
 
 
+@app.get("/api/map/lineage/{lineage_id}")
+def map_lineage(lineage_id: str, industry: str = "", force_table: str = "") -> Dict[str, Any]:
+    """Per-asset mapping view: map a Build lineage's output DataSet onto the
+    chosen industry model. `industry` defaults to the first configured model."""
+    ind = industry or _default_industry()
+    return mapping.industry_model_map(
+        lineage_id=lineage_id, industry=ind,
+        force_table_fqn=force_table or None)
+
+
+@app.post("/api/map/lineage/{lineage_id}")
+def save_mapping(lineage_id: str, payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+    """Re-map with human overrides (force table + per-column choices) and
+    persist the accepted mapping to the state store."""
+    ind = payload.get("industry") or _default_industry()
+    res = mapping.industry_model_map(
+        lineage_id=lineage_id, industry=ind,
+        force_table_fqn=payload.get("force_table") or None,
+        overrides=payload.get("overrides") or {})
+    if payload.get("accept") and not res.get("error"):
+        try:
+            store.get_store().put("mappings", lineage_id, {
+                "lineage_id": lineage_id, "industry": ind,
+                "target_table": res.get("target_table"),
+                "columns": [{"domo_column": c["domo_column"],
+                             "target": c["target"]} for c in res.get("columns", [])]})
+            res["saved"] = True
+        except Exception:
+            res["saved"] = False
+    return res
+
+
+def _saved_mapping(lineage_id: str):
+    """Rehydrate a persisted accepted mapping for a lineage, in the shape
+    sdp.render expects (target_table, industry, columns[domo_column,target_column])."""
+    try:
+        rows = store.get_store().list("mappings")
+    except Exception:
+        return None
+    rec = next((r for r in rows if r.get("lineage_id") == lineage_id), None)
+    if not rec or not rec.get("target_table"):
+        return None
+    cols = []
+    for c in rec.get("columns", []):
+        tgt = c.get("target")
+        cols.append({"domo_column": c.get("domo_column"),
+                     "target_column": tgt.split(".")[-1] if tgt else None})
+    return {"target_table": rec["target_table"], "industry": rec.get("industry", ""),
+            "columns": cols}
+
+
+def _default_industry() -> str:
+    models = (cfgmod.load_config().industry_models or "").split(",")
+    models = [m.strip() for m in models if m.strip()]
+    return models[0] if models else "automotive"
+
+
 @app.get("/api/map/{dataset_id}")
 def map_dataset(dataset_id: str, industry: str = "automotive") -> Dict[str, Any]:
-    return mapping.industry_model_map(dataset_id, industry=industry)
+    return mapping.industry_model_map(dataset_id=dataset_id, industry=industry)
 
 
 @app.get("/api/industries")
