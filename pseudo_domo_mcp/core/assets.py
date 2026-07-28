@@ -118,27 +118,51 @@ def build_inventory(provider) -> Dict[str, Any]:
             "governance": "n/a",
         })
 
+    # Tag each asset with its migration path + whether it drives the Build step.
+    type_meta = {t["key"]: t for t in ASSET_TYPES}
     counts: Dict[str, int] = {}
     for a in assets:
         counts[a["asset_type"]] = counts.get(a["asset_type"], 0) + 1
+        tm = type_meta.get(a["asset_type"], {})
+        a["migration_path"] = tm.get("path", "")
+        a["migration_path_label"] = PATH_LABEL.get(tm.get("path", ""), "")
+        a["build"] = tm.get("build", False)
 
     return {"assets": assets, "counts_by_type": counts}
 
 
-# Display metadata for the UI: label + whether the type is directly migratable.
+# Display metadata for the UI. Every type has a migration PATH — but the paths
+# differ; only the transform types go through the SDP transpiler (the Build
+# step). `path` is the migration strategy; `build` = drives the transpiler.
 ASSET_TYPES = [
-    {"key": "connector", "label": "Connectors", "migratable": True,
+    {"key": "connector", "label": "Connectors", "build": False,
+     "path": "ingest",
      "hint": "Source connections → Databricks ingestion (Lakeflow Connect / Auto Loader / Apps+Lakebase)"},
-    {"key": "magic_etl", "label": "Magic ETL", "migratable": True,
-     "hint": "Visual transform DAGs → Lakeflow Declarative Pipelines"},
-    {"key": "sql_dataflow", "label": "SQL DataFlows", "migratable": True,
-     "hint": "SQL transforms → Spark SQL (hand-review)"},
-    {"key": "dataset", "label": "DataSets", "migratable": False,
-     "hint": "Tables produced/consumed by flows"},
-    {"key": "card", "label": "Cards", "migratable": False,
-     "hint": "Visualizations → AI/BI dashboards (re-point)"},
-    {"key": "beast_mode", "label": "Beast Modes", "migratable": True,
-     "hint": "Card calc fields → gold semantic layer"},
-    {"key": "page", "label": "Pages", "migratable": False,
-     "hint": "Dashboards holding cards"},
+    {"key": "magic_etl", "label": "Magic ETL", "build": True,
+     "path": "transpile",
+     "hint": "Visual transform DAGs → Lakeflow Declarative Pipelines (Build step)"},
+    {"key": "sql_dataflow", "label": "SQL DataFlows", "build": True,
+     "path": "transpile",
+     "hint": "SQL transforms → Spark SQL, hand-review flagged (Build step)"},
+    {"key": "dataset", "label": "DataSets", "build": False,
+     "path": "byproduct",
+     "hint": "Inputs migrate via their connector; outputs ARE the gold table a pipeline produces"},
+    {"key": "card", "label": "Cards", "build": False,
+     "path": "repoint",
+     "hint": "Re-point to the new gold table (Domo connector swap) or rebuild as an AI/BI dashboard"},
+    {"key": "beast_mode", "label": "Beast Modes", "build": False,
+     "path": "metric_view",
+     "hint": "Card calc fields → Unity Catalog metric view (built with the pipeline)"},
+    {"key": "page", "label": "Pages", "build": False,
+     "path": "repoint",
+     "hint": "A set of re-pointed cards → an AI/BI dashboard"},
 ]
+
+# Human-readable migration path labels (for the UI).
+PATH_LABEL = {
+    "transpile": "Transpile → SDP pipeline",
+    "ingest": "Ingest → bronze (connector remap)",
+    "byproduct": "Produced by a pipeline",
+    "repoint": "Re-point → AI/BI",
+    "metric_view": "→ metric view",
+}

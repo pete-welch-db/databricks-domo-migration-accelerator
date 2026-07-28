@@ -115,11 +115,22 @@ Set in the web console's **⚙ Config** panel or via env (persisted to
 
 | Setting | Purpose |
 |---|---|
-| `catalog` / `schema` | Target Unity Catalog location for generated pipelines. |
-| `databricks_profile` | Databricks CLI profile (`databricks auth login`). Empty = write bundle files only; set = deploy for real. OAuth is handled by the CLI; no workspace secret is stored. |
+| `catalog` / `schema` | Default Unity Catalog target for generated pipelines. **Overridable per asset** at Create (a domain/BU can target its own catalog/schema). |
+| `pipeline_language` | `sql` or `python` — the SDP source language. Overridable per asset. |
+| `industry_models` | Which Databricks Industry Data Model(s) to draft-map onto (universal; references the open-source repo). Multi-select. |
+| `databricks_profile` | Databricks CLI profile (`databricks auth login`). Empty = write bundle files only; set = deploy for real. OAuth handled by the CLI; no workspace secret stored. |
 | `domo_provider` | `fixture` (offline) or `live` (Domo REST). |
 | `domo_client_id` + `DOMO_CLIENT_SECRET` (env) | Domo OAuth2 client_credentials. The **secret** is read from the environment, never written to config. |
+| `store_backend` + `lakebase_instance` | State persistence: `local` (JSON file, default) or `lakebase` (Databricks Postgres) for durable, shared scan history / migration status / bundle registry. |
 | `git_provider` + `git_repo` + `GIT_TOKEN` (env) | Optional: link a **GitHub** or **Azure DevOps** repo so Create commits the generated bundle as a PR. Token read from env, never stored. |
+
+### Staying current with Databricks conventions
+
+The SDP/DAB patterns the tool generates against are **not hardcoded** — they
+track the [ai-dev-kit](https://github.com/databricks-solutions/ai-dev-kit) repo.
+A pattern manifest is cached locally and refreshed on install; re-refresh
+anytime via **⚙ Config → Refresh patterns from ai-dev-kit**. Fully offline-safe:
+with no network, built-in defaults apply.
 
 ## Test
 

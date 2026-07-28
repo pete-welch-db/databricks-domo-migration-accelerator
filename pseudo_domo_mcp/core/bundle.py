@@ -48,7 +48,7 @@ def retarget_sql(sql: str, catalog: str, schema_prefix: str = "") -> str:
 
 def write_bundle(result: Dict[str, Any], out_root: str,
                  catalog: str, schema: str,
-                 profile: str = "") -> Dict[str, Any]:
+                 profile: str = "", language: str = "sql") -> Dict[str, Any]:
     """Materialize a deployable DAB for a transpiled lineage.
 
     Args:
@@ -56,25 +56,26 @@ def write_bundle(result: Dict[str, Any], out_root: str,
         out_root: directory to write the bundle into.
         catalog/schema: the configured Databricks target.
         profile: Databricks CLI profile; if set, we also deploy for real.
+        language: "sql" | "python" — the SDP source language to emit.
     """
+    from . import sdp  # local import avoids a cycle
     lineage = result["lineage"]
     lid = lineage["id"]
     name = re.sub(r"[^a-z0-9_]+", "_", lineage["name"].lower()).strip("_")
     bundle_dir = os.path.join(out_root, f"bundle_{lid}")
-    sql_dir = os.path.join(bundle_dir, "src", "sql")
-    os.makedirs(sql_dir, exist_ok=True)
+    ext = "py" if language == "python" else "sql"
+    src_dir = os.path.join(bundle_dir, "src", "pipeline")
+    os.makedirs(src_dir, exist_ok=True)
 
-    # 1) Write retargeted medallion SQL files.
+    # 1) Write the real SDP source (Lakeflow Declarative Pipeline) in the chosen
+    #    language, retargeted to the configured catalog.
     written: List[str] = []
-    for layer in ("bronze", "silver", "gold", "gold_semantic_metrics"):
-        sql = result.get("sql", {}).get(layer)
-        if not sql:
-            continue
-        sql = retarget_sql(sql, catalog, schema_prefix="")
-        path = os.path.join(sql_dir, f"{layer}.sql")
-        with open(path, "w", encoding="utf-8") as fh:
-            fh.write(sql)
-        written.append(os.path.relpath(path, bundle_dir))
+    sdp_code = sdp.render(result, language)
+    sdp_code = retarget_sql(sdp_code, catalog, schema_prefix="")
+    sdp_path = os.path.join(src_dir, f"pipeline.{ext}")
+    with open(sdp_path, "w", encoding="utf-8") as fh:
+        fh.write(sdp_code)
+    written.append(os.path.relpath(sdp_path, bundle_dir))
 
     # 2) databricks.yml — a DAB with one Lakeflow Declarative Pipeline.
     pipeline_name = f"pseudo_domo_{name}"

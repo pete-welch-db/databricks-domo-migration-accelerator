@@ -28,6 +28,10 @@ from ..core.domo_client import get_provider
 from ..core import config as cfgmod
 from ..core import gitlink
 from ..core import sdp
+from ..core import store
+from ..core import patterns
+from ..core import model_catalog
+from ..core import llm
 from ..core.graph import build_graph
 from ..core.bundle import write_bundle
 from ..transpiler import pipeline
@@ -60,8 +64,25 @@ def estate() -> Dict[str, Any]:
 def inventory(asset_type: str = "", search: str = "") -> Dict[str, Any]:
     """Typed, searchable asset inventory (connectors, magic_etl, sql_dataflow,
     dataset, card, beast_mode, page). Powers the Discover step's browse/search/
-    filter and the connector remap plan."""
-    return discovery.domo_inventory(asset_type=asset_type, search=search)
+    filter and the connector remap plan. Records the scan to the state store."""
+    inv = discovery.domo_inventory(asset_type=asset_type, search=search)
+    if not asset_type and not search:  # a full scan — record it
+        try:
+            import datetime
+            store.get_store().append("scans", {
+                "at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                "counts_by_type": inv["counts_by_type"]})
+        except Exception:
+            pass  # persistence must never block discovery
+    return inv
+
+
+@app.get("/api/history")
+def history() -> Dict[str, Any]:
+    """Persisted scan history + bundle registry (from the configured store)."""
+    s = store.get_store()
+    return {"backend": s.backend(), "scans": s.list("scans"),
+            "bundles": s.list("bundles")}
 
 
 @app.get("/api/analyze/{lineage_id}")
@@ -103,14 +124,17 @@ def draft(lineage_id: str, language: str = "") -> Dict[str, Any]:
 def create(lineage_id: str, payload: Optional[Dict[str, Any]] = Body(default=None)) -> Dict[str, Any]:
     """Create: transpile, write a deployable DAB, deploy if a profile is set.
 
-    Body may override {catalog, schema, profile}; otherwise the saved config
-    is used. Deploy happens only when a Databricks profile is present.
+    Body may override {catalog, schema, profile, language, repo} PER ASSET;
+    otherwise the saved config is used. Deploy happens only when a Databricks
+    profile is present. The generated bundle uses real SDP in the chosen
+    language.
     """
     payload = payload or {}
     cfg = cfgmod.load_config()
     catalog = payload.get("catalog") or cfg.catalog
     schema = payload.get("schema") or cfg.schema
     profile = payload.get("profile", cfg.databricks_profile)
+    language = payload.get("language") or cfg.pipeline_language
 
     p = get_provider()
     fixtures = getattr(p, "lineages_dir_path", lambda: None)()
@@ -122,7 +146,8 @@ def create(lineage_id: str, payload: Optional[Dict[str, Any]] = Body(default=Non
                 "transpile": result}
 
     os.makedirs(_BUNDLE_ROOT, exist_ok=True)
-    bundle = write_bundle(result, _BUNDLE_ROOT, catalog, schema, profile=profile)
+    bundle = write_bundle(result, _BUNDLE_ROOT, catalog, schema,
+                          profile=profile, language=language)
 
     # Optional: commit the bundle to a linked repo (opt-in via the repo field).
     if payload.get("repo") and cfg.git_provider:
@@ -131,9 +156,39 @@ def create(lineage_id: str, payload: Optional[Dict[str, Any]] = Body(default=Non
         bundle["git"] = gitlink.commit_bundle(
             cfg.git_provider, payload["repo"], bundle["bundle_dir"], branch, msg)
 
+    # Register the bundle + mark the asset built in the state store.
+    try:
+        store.get_store().append("bundles", {
+            "lineage_id": lineage_id, "pipeline_name": bundle["pipeline_name"],
+            "target": f"{catalog}.{schema}", "language": language,
+            "deployed": bundle["deployed"]})
+        store.get_store().put("asset_status", lineage_id, {
+            "lineage_id": lineage_id,
+            "status": "deployed" if bundle["deployed"] else "built"})
+    except Exception:
+        pass
+
     return {"transpile": {"gate": result["reconciliation"]["gate"],
                           "counts": result["counts"]},
             "bundle": bundle}
+
+
+@app.get("/api/patterns")
+def get_patterns() -> Dict[str, Any]:
+    """Current SDP/DAB pattern manifest (tracked from ai-dev-kit)."""
+    return patterns.load_patterns()
+
+
+@app.post("/api/patterns/refresh")
+def refresh_patterns() -> Dict[str, Any]:
+    """Re-fetch the latest conventions from the ai-dev-kit repo (offline-safe)."""
+    return patterns.refresh()
+
+
+@app.get("/api/llm/status")
+def llm_status() -> Dict[str, Any]:
+    """Whether the optional LLM enhancement is configured + reachable."""
+    return llm.status()
 
 
 @app.get("/api/config")
@@ -154,6 +209,19 @@ def map_dataset(dataset_id: str, industry: str = "automotive") -> Dict[str, Any]
 @app.get("/api/industries")
 def industries() -> Dict[str, Any]:
     return mapping.list_industry_models()
+
+
+@app.get("/api/models")
+def models() -> Dict[str, Any]:
+    """Full catalog of Databricks Industry Data Models (all repo models),
+    each flagged whether its DDL is vendored locally (mappable offline now)."""
+    return {"models": model_catalog.catalog()}
+
+
+@app.post("/api/models/refresh")
+def models_refresh() -> Dict[str, Any]:
+    """Refresh the model list from the industry-data-models repo (offline-safe)."""
+    return model_catalog.refresh()
 
 
 @app.get("/api/feasibility")

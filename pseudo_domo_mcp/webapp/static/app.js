@@ -3,9 +3,9 @@ const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const api = async (path, opts) => (await fetch(path, opts)).json();
 
-const PHASES = ["configure", "connect", "discover", "assess", "plan", "build"];
+const PHASES = ["configure", "connect", "discover", "assess", "model", "plan", "build"];
 const PHASE_LABEL = { configure: "Configure", connect: "Connect", discover: "Discover",
-  assess: "Assess", plan: "Plan", build: "Build & Deploy" };
+  assess: "Assess", model: "Model", plan: "Plan", build: "Build & Deploy" };
 
 // Plain-language glossary — surfaced as hover tooltips throughout the UI.
 const TIP = {
@@ -55,6 +55,7 @@ function goPhase(p) {
   renderRail();
   if (p === "discover") onEnterDiscover();
   if (p === "assess") loadAssess();
+  if (p === "model") loadModel();
   if (p === "plan") loadPlan();
   if (p === "build") loadBuild();
 }
@@ -73,6 +74,7 @@ function fillConfigureForm() {
   $("#w-catalog").value = c.catalog || "";
   $("#w-schema").value = c.schema || "";
   $("#w-profile").value = c.databricks_profile || "";
+  $("#w-host").value = c.databricks_host || "";
   $("#w-provider").value = c.domo_provider || "fixture";
   $("#w-domo-id").value = c.domo_client_id || "";
   $("#w-secret-note").textContent = c.domo_secret_present
@@ -82,7 +84,7 @@ function fillConfigureForm() {
 async function saveWizardConfig() {
   const updates = {
     catalog: $("#w-catalog").value, schema: $("#w-schema").value,
-    databricks_profile: $("#w-profile").value,
+    databricks_profile: $("#w-profile").value, databricks_host: $("#w-host").value,
     domo_provider: $("#w-provider").value, domo_client_id: $("#w-domo-id").value };
   state.config = await api("/api/config",
     { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updates) });
@@ -173,10 +175,12 @@ function assetCard(a) {
   }
   const sig = (a.governance_signals || []).length
     ? `<details class="why"><summary>why ${a.governance}?</summary><ul>${a.governance_signals.map(x => `<li>${esc(x)}</li>`).join("")}</ul></details>` : "";
+  const path = a.migration_path_label
+    ? `<div class="mpath ${a.build ? "buildable" : ""}">↳ ${esc(a.migration_path_label)}</div>` : "";
   return `<div class="asset-card">
     <div class="ac-head"><span class="atype at-${a.asset_type}" ${tip(a.asset_type)}>${typeLabel(a.asset_type)}</span>
       <span class="ac-name">${esc(a.name || a.id)}</span>${gov}</div>
-    ${extra}${sig}</div>`;
+    ${extra}${path}${sig}</div>`;
 }
 const TYPE_LABEL = { connector: "Connector", magic_etl: "Magic ETL", sql_dataflow: "SQL DataFlow",
   dataset: "DataSet", card: "Card", beast_mode: "Beast Mode", page: "Page" };
@@ -197,7 +201,9 @@ async function loadAssess() {
       <td><span class="chip v-${a.value.band}">${a.value.value_per_year}</span></td>
       <td><span class="chip cx-${a.complexity.band}" ${tip("complexity", "tip-left")}>${a.complexity.score}</span></td>
     </tr>
-    <tr class="sigrow"><td colspan="6"><details><summary>why this governance call?</summary><ul>${sig}</ul></details></td></tr>`;
+    <tr class="sigrow"><td colspan="6"><details><summary>why this governance call?</summary>
+      ${a.governance_rationale ? `<p class="ai-note">✨ ${esc(a.governance_rationale)}</p>` : ""}
+      <ul>${sig}</ul></details></td></tr>`;
   }).join("");
   body.innerHTML = `<table class="assess-table">
     <tr><th>Asset</th><th ${tip("type")}>Type</th><th ${tip("domain")}>Domain</th>
@@ -205,6 +211,45 @@ async function loadAssess() {
       <th ${tip("complexity", "tip-left")}>Complexity</th></tr>
     ${rows}</table>
     <p class="muted small">Governance is inferred — expand a row to see the signals. Confirm or override before you rely on it.</p>`;
+}
+
+// ------------------------------------------------------------ model -------
+async function loadModel() {
+  const grid = $("#model-grid");
+  grid.innerHTML = `<div class="loading">Loading models…</div>`;
+  const data = await api("/api/models");
+  state.models = data.models || [];
+  state.chosenModels = new Set((state.config.industry_models || "")
+    .split(",").map(s => s.trim()).filter(Boolean));
+  renderModels();
+}
+function renderModels() {
+  const grid = $("#model-grid");
+  const s = ($("#model-search").value || "").toLowerCase();
+  const items = state.models.filter(m => !s || m.key.includes(s) || m.label.toLowerCase().includes(s));
+  grid.innerHTML = items.map(m => {
+    const on = state.chosenModels.has(m.key);
+    return `<div class="model-card ${on ? "on" : ""}" data-key="${m.key}">
+      <div class="mc-check">${on ? "✓" : ""}</div>
+      <div><div class="mc-label">${m.label}</div>
+        <div class="muted small">${m.vendored ? "vendored · maps offline" : "available · fetched on first map"}</div></div>
+    </div>`;
+  }).join("") || `<div class="loading">No models match.</div>`;
+  $$("#model-grid .model-card").forEach(el => el.onclick = () => toggleModel(el.dataset.key));
+}
+async function toggleModel(key) {
+  if (state.chosenModels.has(key)) state.chosenModels.delete(key);
+  else state.chosenModels.add(key);
+  renderModels();
+  state.config = await api("/api/config", { method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ industry_models: [...state.chosenModels].join(",") }) });
+}
+async function refreshModels() {
+  const btn = $("#btn-refresh-models"); btn.disabled = true; btn.textContent = "Refreshing…";
+  const r = await api("/api/models/refresh", { method: "POST" });
+  btn.disabled = false; btn.textContent = "↻ Refresh list from repo";
+  await loadModel();
 }
 
 // ------------------------------------------------------------ plan ---------
@@ -228,8 +273,7 @@ async function loadPlan() {
 // ------------------------------------------------------------ build --------
 function loadBuild() {
   const list = $("#build-list");
-  const migratable = (state.assets || []).filter(a =>
-    (a.asset_type === "magic_etl" || a.asset_type === "sql_dataflow") );
+  const migratable = (state.assets || []).filter(a => a.build);
   if (!migratable.length) { list.innerHTML = `<div class="loading">Run a Discovery Scan first.</div>`; return; }
   list.innerHTML = migratable.map(a =>
     `<div class="asset-card mini ${a.has_triplet ? "" : "disabled"}" data-lid="${a.triplet_lineage_id || ""}">
@@ -354,6 +398,7 @@ function prefillCreate() {
   const c = state.config || {};
   $("#c-catalog").value = c.catalog || ""; $("#c-schema").value = c.schema || "";
   $("#c-profile").value = c.databricks_profile || "";
+  $("#c-language").value = state.draftLang || c.pipeline_language || "sql";
   // repo option only if a git provider is configured
   if (c.git_provider) {
     $("#repo-wrap").classList.remove("hidden");
@@ -367,7 +412,8 @@ function prefillCreate() {
 async function doCreate() {
   const btn = $("#btn-create"); btn.disabled = true; btn.textContent = "Creating…";
   const body = { catalog: $("#c-catalog").value, schema: $("#c-schema").value,
-    profile: $("#c-profile").value, repo: $("#c-repo") ? $("#c-repo").value : "" };
+    profile: $("#c-profile").value, language: $("#c-language").value,
+    repo: $("#c-repo") ? $("#c-repo").value : "" };
   const r = await api(`/api/create/${state.buildAsset.triplet_lineage_id}`,
     { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   btn.disabled = false; btn.textContent = "⚡ Create pipeline";
@@ -387,22 +433,42 @@ async function doCreate() {
 async function refreshPills() {
   $("#provider-pill").textContent = `provider: ${state.config.domo_provider}`;
   $("#deploy-pill").textContent = state.config.deploy_ready ? `deploy: ${state.config.databricks_profile}` : "deploy: files only";
+  $("#ai-pill").classList.toggle("hidden", !state.config.llm_enabled);
 }
-function openConfig() {
+async function openConfig() {
   const c = state.config;
   $("#cfg-catalog").value = c.catalog; $("#cfg-schema").value = c.schema; $("#cfg-profile").value = c.databricks_profile;
+  $("#cfg-language").value = c.pipeline_language || "sql";
   $("#cfg-provider").value = c.domo_provider; $("#cfg-domo-id").value = c.domo_client_id;
   $("#cfg-secret").textContent = c.domo_secret_present ? "DOMO_CLIENT_SECRET present ✓" : "No DOMO_CLIENT_SECRET in env.";
+  $("#cfg-store").value = c.store_backend || "local"; $("#cfg-lakebase").value = c.lakebase_instance || "";
+  $("#cfg-llm").value = c.llm_endpoint || ""; $("#cfg-host").value = c.databricks_host || "";
+  $("#cfg-llm-status").textContent = c.llm_enabled
+    ? "AI enhancement ON ✓" : "AI enhancement off — deterministic only.";
   $("#cfg-git-provider").value = c.git_provider || ""; $("#cfg-git-repo").value = c.git_repo || "";
   $("#cfg-git-token").textContent = c.git_token_present ? "GIT_TOKEN present ✓" : "No GIT_TOKEN in env.";
+  // industry-model selection lives in the wizard Model step now; just echo it.
+  $("#cfg-models-current").textContent = c.industry_models || "(none selected)";
+  // patterns provenance
+  const pat = await api("/api/patterns");
+  $("#cfg-patterns").textContent = `Source: ${pat.source}${pat.refreshed_at ? " · refreshed " + pat.refreshed_at.slice(0, 10) : " · never refreshed"}.`;
   $("#config-modal").classList.remove("hidden");
 }
 async function saveConfig() {
   const u = { catalog: $("#cfg-catalog").value, schema: $("#cfg-schema").value, databricks_profile: $("#cfg-profile").value,
+    pipeline_language: $("#cfg-language").value,
     domo_provider: $("#cfg-provider").value, domo_client_id: $("#cfg-domo-id").value,
+    store_backend: $("#cfg-store").value, lakebase_instance: $("#cfg-lakebase").value,
+    llm_endpoint: $("#cfg-llm").value, databricks_host: $("#cfg-host").value,
     git_provider: $("#cfg-git-provider").value, git_repo: $("#cfg-git-repo").value };
   state.config = await api("/api/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(u) });
   refreshPills(); $("#config-modal").classList.add("hidden");
+}
+async function refreshPatterns() {
+  const btn = $("#cfg-refresh-patterns"); btn.disabled = true; btn.textContent = "Refreshing…";
+  const r = await api("/api/patterns/refresh", { method: "POST" });
+  btn.disabled = false; btn.textContent = "↻ Refresh patterns from ai-dev-kit";
+  $("#cfg-patterns").textContent = r.message;
 }
 
 // ------------------------------------------------------------ wire up ------
@@ -420,6 +486,9 @@ $("#search").oninput = e => { state.search = e.target.value; renderAssets(); };
 $("#btn-config").onclick = openConfig;
 $("#cfg-close").onclick = () => $("#config-modal").classList.add("hidden");
 $("#cfg-save").onclick = saveConfig;
+$("#cfg-refresh-patterns").onclick = refreshPatterns;
+$("#btn-refresh-models").onclick = refreshModels;
+$("#model-search").oninput = renderModels;
 
 (async function init() {
   state.config = await api("/api/config");

@@ -31,8 +31,10 @@ class AppConfig:
     # Target Databricks objects for generated pipelines.
     catalog: str = "domo_migration"
     schema: str = "aftermarket"
-    # Databricks workspace CLI profile (empty = local artifacts only).
+    # Databricks workspace. The CLI profile encodes host + auth; the host is
+    # also surfaced explicitly for display and the App/API deploy path.
     databricks_profile: str = ""
+    databricks_host: str = ""               # https://<workspace>.cloud.databricks.com
     # Domo provider selection + OAuth client id (secret stays in env).
     domo_provider: str = "fixture"          # "fixture" | "live"
     domo_client_id: str = ""
@@ -48,6 +50,9 @@ class AppConfig:
     # Persistence backend for scan history / migration status / mappings.
     store_backend: str = "local"            # "local" | "lakebase"
     lakebase_instance: str = ""             # Lakebase instance name (if used)
+    # OPTIONAL LLM enhancement via a Databricks model serving endpoint. Empty =
+    # off (tool stays fully deterministic/offline). Token from DATABRICKS_TOKEN.
+    llm_endpoint: str = ""                  # serving endpoint name
 
     def public(self) -> Dict[str, Any]:
         """Config safe to send to the browser (no secrets are stored here,
@@ -56,6 +61,10 @@ class AppConfig:
         d["domo_secret_present"] = bool(os.environ.get("DOMO_CLIENT_SECRET"))
         d["git_token_present"] = bool(os.environ.get("GIT_TOKEN"))
         d["deploy_ready"] = bool(self.databricks_profile)
+        d["llm_enabled"] = bool(
+            self.llm_endpoint
+            and (self.databricks_host or os.environ.get("DATABRICKS_HOST"))
+            and os.environ.get("DATABRICKS_TOKEN"))
         return d
 
 

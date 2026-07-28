@@ -18,6 +18,7 @@
     <div class="topbar-right">
       <span id="provider-pill" class="pill">provider: …</span>
       <span id="deploy-pill" class="pill">deploy: …</span>
+      <span id="ai-pill" class="pill hidden">✨ AI</span>
       <button id="btn-config" class="btn ghost">⚙ Config</button>
     </div>
   </header>
@@ -32,14 +33,15 @@
         <h1>Configure</h1>
         <p class="muted">Set your Databricks target and how you'll connect to Domo. Nothing is sent anywhere yet; secrets stay in your environment.</p>
         <h4>Databricks target</h4>
-        <div class="grid2">
+        <div class="fieldgrid">
+          <label>Workspace host <input id="w-host" type="text" placeholder="https://your-workspace.cloud.databricks.com" /></label>
+          <label>CLI profile <input id="w-profile" type="text" placeholder="(empty = generate files only)" /></label>
           <label>Catalog <input id="w-catalog" type="text" /></label>
           <label>Schema <input id="w-schema" type="text" /></label>
-          <label>CLI profile <input id="w-profile" type="text" placeholder="(empty = generate files only)" /></label>
         </div>
-        <p class="muted small">Deploy uses the Databricks CLI (OAuth). Empty profile = the Build step writes a deployable bundle without deploying.</p>
+        <p class="muted small">The CLI profile (<code>databricks auth login</code>, OAuth) encodes the host + auth used to deploy. Empty profile = Build writes a deployable bundle without deploying.</p>
         <h4>Domo source</h4>
-        <div class="grid2">
+        <div class="fieldgrid">
           <label>Provider
             <select id="w-provider">
               <option value="fixture">fixture — offline sample tenant</option>
@@ -99,6 +101,21 @@
       </div>
     </section>
 
+    <!-- ============ PHASE: MODEL ============ -->
+    <section class="phase hidden" data-phase="model">
+      <div class="phase-head">
+        <div><h1>Industry Data Model</h1>
+        <p class="muted">Pick the canonical model(s) to draft-map your Domo data onto. Universal — references the open-source Databricks Industry Data Models (all models in the repo).</p></div>
+        <button id="btn-refresh-models" class="btn ghost">↻ Refresh list from repo</button>
+      </div>
+      <input id="model-search" type="text" class="search" placeholder="Search industry models…" style="margin-bottom:12px;max-width:340px" />
+      <div id="model-grid" class="model-grid"><div class="loading">Loading models…</div></div>
+      <div class="phase-actions">
+        <button class="btn ghost" data-prev>← Back</button>
+        <button class="btn primary" data-next>Plan →</button>
+      </div>
+    </section>
+
     <!-- ============ PHASE: PLAN ============ -->
     <section class="phase hidden" data-phase="plan">
       <div class="phase-head"><div><h1>Plan</h1><p class="muted">A value-driven migration wave plan and per-connector ingestion strategy.</p></div></div>
@@ -146,9 +163,13 @@
               </div>
             </section>
             <section id="stage-create" class="stage hidden">
+              <p class="muted small">Per-asset target — a domain/BU may use its own catalog/schema. Defaults come from Config.</p>
               <div class="create-config">
                 <label>Catalog <input id="c-catalog" type="text" /></label>
                 <label>Schema <input id="c-schema" type="text" /></label>
+                <label>Language
+                  <select id="c-language"><option value="sql">SDP SQL</option><option value="python">SDP Python</option></select>
+                </label>
                 <label>Databricks profile <input id="c-profile" type="text" placeholder="(empty = files only)" /></label>
                 <label id="repo-wrap" class="hidden">Commit to repo
                   <select id="c-repo"><option value="">— no —</option></select>
@@ -177,14 +198,33 @@
         <label>Catalog <input id="cfg-catalog" type="text" /></label>
         <label>Schema <input id="cfg-schema" type="text" /></label>
         <label>CLI profile <input id="cfg-profile" type="text" /></label>
+        <h4>Generated pipeline</h4>
+        <label>Language
+          <select id="cfg-language"><option value="sql">SDP SQL</option><option value="python">SDP Python (notebook)</option></select>
+        </label>
+        <p class="muted small">Default language for generated Lakeflow Declarative Pipelines; overridable per asset at Create.</p>
+        <p class="muted small">Industry data model selection is now a wizard step (Model). Current: <span id="cfg-models-current"></span></p>
         <h4>Domo source</h4>
         <label>Provider <select id="cfg-provider"><option value="fixture">fixture</option><option value="live">live</option></select></label>
         <label>Domo client ID <input id="cfg-domo-id" type="text" /></label>
         <p class="muted small" id="cfg-secret"></p>
+        <h4>Persistence</h4>
+        <label>State store
+          <select id="cfg-store"><option value="local">local file</option><option value="lakebase">Lakebase (Postgres)</option></select>
+        </label>
+        <label>Lakebase instance <input id="cfg-lakebase" type="text" placeholder="(lakebase only)" /></label>
+        <h4>AI enhancement (optional)</h4>
+        <p class="muted small">Point at a Databricks model serving endpoint to enhance mapping, Beast Mode &amp; SQL translation, and governance rationale. Off = fully deterministic/offline. Token from <code>DATABRICKS_TOKEN</code>.</p>
+        <label>Model serving endpoint <input id="cfg-llm" type="text" placeholder="(empty = deterministic only)" /></label>
+        <label>Workspace host <input id="cfg-host" type="text" placeholder="https://…databricks.com" /></label>
+        <p class="muted small" id="cfg-llm-status"></p>
         <h4>Version control (optional)</h4>
         <label>Git provider <select id="cfg-git-provider"><option value="">none</option><option value="github">GitHub</option><option value="azure_devops">Azure DevOps</option></select></label>
         <label>Repo (owner/name or org/project/repo) <input id="cfg-git-repo" type="text" placeholder="acme/data-platform" /></label>
         <p class="muted small">Token read from <code>GIT_TOKEN</code> in the environment; never stored. <span id="cfg-git-token"></span></p>
+        <h4>Databricks conventions (ai-dev-kit)</h4>
+        <p class="muted small">SDP/DAB patterns track the ai-dev-kit repo. <span id="cfg-patterns"></span></p>
+        <button id="cfg-refresh-patterns" class="btn ghost">↻ Refresh patterns from ai-dev-kit</button>
       </div>
       <div class="modal-foot"><button id="cfg-save" class="btn primary">Save</button></div>
     </div>

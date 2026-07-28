@@ -13,3 +13,5 @@ out/
 # generated pipeline bundles + local config
 generated/
 .pseudo_domo_config.json
+.pseudo_domo_state.json
+.pseudo_domo_patterns.json

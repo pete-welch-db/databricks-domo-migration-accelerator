@@ -23,6 +23,8 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List
 
+from . import patterns
+
 # --------------------------------------------------------------------------- #
 # Parse the emitted plain-SQL medallion into (view_name, select_body) units.
 # The transpiler writes blocks like:
@@ -69,6 +71,10 @@ def _render_sql(result: Dict[str, Any]) -> str:
         "",
     ]
 
+    streaming_kw = patterns.tunable("streaming_keyword")
+    mv_kw = patterns.tunable("materialized_keyword")
+    fmt = patterns.tunable("autoloader_format")
+
     # Bronze: streaming tables reading raw landing files via Auto Loader.
     for v in bronze:
         name = _short(v["fqn"])
@@ -76,11 +82,11 @@ def _render_sql(result: Dict[str, Any]) -> str:
         src = re.search(r"FROM\s+([^\s;]+)", v["body"], re.IGNORECASE)
         raw = src.group(1) if src else "<raw_source>"
         lines += [
-            f"CREATE OR REFRESH STREAMING TABLE {name}",
+            f"{streaming_kw} {name}",
             f"  COMMENT 'Bronze ingest of {raw} (was a Domo input DataSet).'",
             "AS SELECT * FROM STREAM read_files(",
             f"  '/Volumes/${{catalog}}/${{schema}}/landing/{name}/',",
-            "  format => 'json'",
+            f"  format => '{fmt}'",
             ");",
             "",
         ]
@@ -89,7 +95,7 @@ def _render_sql(result: Dict[str, Any]) -> str:
     for v in silver:
         name = _short(v["fqn"])
         lines += [
-            f"CREATE OR REFRESH MATERIALIZED VIEW {name} AS",
+            f"{mv_kw} {name} AS",
             _requalify(v["body"]) + ";",
             "",
         ]
@@ -104,7 +110,7 @@ def _render_sql(result: Dict[str, Any]) -> str:
         exp_block = " ON VIOLATION DROP ROW,\n".join(expects)
         out_ds = st.get("output_dataset", "")
         lines += [
-            f"CREATE OR REFRESH MATERIALIZED VIEW {name} ("]
+            f"{mv_kw} {name} ("]
         if exp_block:
             lines.append(exp_block + " ON VIOLATION DROP ROW")
         lines += [

@@ -7,6 +7,7 @@ from typing import Any, Dict, List
 from ..core.domo_client import get_provider
 from ..core import classifier
 from ..core import governance
+from ..core import llm
 
 __all__ = ["domo_assess"]
 
@@ -56,6 +57,11 @@ def domo_assess(scope: str = "dataflows") -> Dict[str, Any]:
         # INFER governance from API-observable signals (source type, writeback,
         # owner shape, cadence) — do NOT trust a pre-tagged field.
         gov = governance.infer(df, input_ds)
+        # OPTIONAL: an LLM can add a plain-language rationale (falls back to the
+        # raw signals when the LLM is not configured — never blocks).
+        rationale = llm.explain_governance(
+            df.get("name", ""), gov["signals"], gov["governance"],
+            fallback="") if llm.enabled() else ""
         assessed.append({
             "dataflow_id": df["id"],
             "name": df.get("name"),
@@ -65,6 +71,7 @@ def domo_assess(scope: str = "dataflows") -> Dict[str, Any]:
             "governance": gov["governance"],
             "governance_confidence": gov["confidence"],
             "governance_signals": gov["signals"],
+            "governance_rationale": rationale,
             "complexity": cx,
             "value": val,
             "has_triplet": bool(df.get("_triplet_lineage_id")),
