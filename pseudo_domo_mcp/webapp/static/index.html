@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pseudo-Domo · Migration Console</title>
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">◆</span>
+      <div>
+        <div class="title">Domo → Databricks Migration Console</div>
+        <div class="subtitle">discover · analyze · draft · create</div>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <span id="provider-pill" class="pill">provider: …</span>
+      <span id="deploy-pill" class="pill">deploy: …</span>
+      <button id="btn-config" class="btn ghost">⚙ Config</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <!-- LEFT: estate browser -->
+    <aside class="sidebar">
+      <div class="sidebar-head">
+        <span>Estate</span>
+        <span id="estate-counts" class="muted small"></span>
+      </div>
+      <div id="estate-list" class="estate-list">
+        <div class="loading">Loading estate…</div>
+      </div>
+      <div class="sidebar-foot">
+        <button id="btn-plan" class="btn ghost full">📋 Migration Plan</button>
+        <button id="btn-feas" class="btn ghost full">🔌 Source Feasibility</button>
+      </div>
+    </aside>
+
+    <!-- RIGHT: workspace -->
+    <main class="workspace">
+      <div id="empty-state" class="empty">
+        <div class="empty-icon">◇</div>
+        <h2>Select a Magic ETL or dashboard</h2>
+        <p>Pick an item from the estate to analyze its data flow, draft the
+           Databricks pipeline, and create it.</p>
+      </div>
+
+      <div id="detail" class="detail hidden">
+        <div class="detail-head">
+          <div>
+            <div id="detail-title" class="detail-title"></div>
+            <div id="detail-sub" class="muted small"></div>
+          </div>
+          <div id="detail-badges" class="badges"></div>
+        </div>
+
+        <!-- stage stepper -->
+        <div class="stepper">
+          <button class="step active" data-stage="analyze"><span>1</span> Analyze</button>
+          <button class="step" data-stage="draft"><span>2</span> Draft</button>
+          <button class="step" data-stage="create"><span>3</span> Create</button>
+        </div>
+
+        <section id="stage-analyze" class="stage">
+          <div id="graph-wrap" class="graph-wrap"><div class="loading">…</div></div>
+          <div id="analyze-meta" class="meta-row"></div>
+          <div class="stage-actions">
+            <button class="btn primary" data-goto="draft">Draft the code →</button>
+          </div>
+        </section>
+
+        <section id="stage-draft" class="stage hidden">
+          <div id="draft-gate" class="gate"></div>
+          <div class="tabs" id="sql-tabs"></div>
+          <pre id="sql-view" class="code"></pre>
+          <div class="stage-actions">
+            <button class="btn ghost" data-goto="analyze">← Back</button>
+            <button class="btn primary" data-goto="create">Create pipeline →</button>
+          </div>
+        </section>
+
+        <section id="stage-create" class="stage hidden">
+          <div class="create-config">
+            <label>Catalog <input id="c-catalog" type="text" /></label>
+            <label>Schema <input id="c-schema" type="text" /></label>
+            <label>Databricks profile
+              <input id="c-profile" type="text" placeholder="(empty = files only)" />
+            </label>
+          </div>
+          <div id="create-hint" class="hint"></div>
+          <div class="stage-actions">
+            <button class="btn ghost" data-goto="draft">← Back</button>
+            <button id="btn-create" class="btn create">⚡ Create pipeline</button>
+          </div>
+          <div id="create-result" class="create-result hidden"></div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <!-- config modal -->
+  <div id="config-modal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head"><span>Configuration</span>
+        <button id="cfg-close" class="btn ghost">✕</button></div>
+      <div class="modal-body">
+        <h4>Databricks target</h4>
+        <label>Catalog <input id="cfg-catalog" type="text" /></label>
+        <label>Schema <input id="cfg-schema" type="text" /></label>
+        <label>CLI profile <input id="cfg-profile" type="text"
+               placeholder="databricks auth login --profile <name>" /></label>
+        <p class="muted small">Create writes bundle files always; it deploys for
+           real only when a profile is set (OAuth handled by the databricks CLI).</p>
+        <h4>Domo source</h4>
+        <label>Provider
+          <select id="cfg-provider">
+            <option value="fixture">fixture (offline / synthetic)</option>
+            <option value="live">live (Domo REST — OAuth client_credentials)</option>
+          </select>
+        </label>
+        <label>Domo client ID <input id="cfg-domo-id" type="text" /></label>
+        <p class="muted small">Domo uses OAuth2 client_credentials. The client
+           <em>secret</em> is read from <code>DOMO_CLIENT_SECRET</code> in the
+           environment — never stored in config. <span id="cfg-secret"></span></p>
+      </div>
+      <div class="modal-foot">
+        <button id="cfg-save" class="btn primary">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- generic drawer for plan / feasibility -->
+  <div id="drawer" class="drawer hidden">
+    <div class="drawer-card">
+      <div class="modal-head"><span id="drawer-title"></span>
+        <button id="drawer-close" class="btn ghost">✕</button></div>
+      <div id="drawer-body" class="modal-body"></div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

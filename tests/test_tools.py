@@ -1,0 +1,101 @@
+"""End-to-end tests for the Pseudo-Domo MCP tools (against synthetic fixtures).
+
+These exercise the plain sync tool functions directly (no MCP client needed),
+which is exactly what the server wraps. Running `pytest` proves the whole
+discovery -> assess -> map -> feasibility -> transpile -> plan flow works
+offline and that the transpile reconcile gate goes green.
+"""
+
+from __future__ import annotations
+
+from pseudo_domo_mcp.tools import (
+    discovery, assessment, mapping, feasibility, transpile, plan,
+)
+
+
+def test_discover_summary():
+    s = discovery.domo_discover("summary")
+    assert s["counts"]["datasets"] == 9
+    assert s["counts"]["dataflows"] == 5
+    assert s["dataflow_types"]["MAGIC"] == 4
+    assert s["dataflow_types"]["SQL"] == 1
+    # governed vs shadow split present
+    assert s["governance_split"]["dataflows"]["governed"] >= 1
+    assert s["governance_split"]["dataflows"]["shadow"] >= 1
+
+
+def test_discover_scopes():
+    assert len(discovery.domo_discover("datasets")["datasets"]) == 9
+    assert len(discovery.domo_discover("cards")["cards"]) == 6
+    assert len(discovery.domo_discover("pages")["pages"]) == 5
+    assert "Oracle ERP" in discovery.domo_discover("sources")["source_systems"]
+
+
+def test_assess_dataflows_classify_and_score():
+    out = assessment.domo_assess("dataflows")["assessments"]
+    by_name = {a["name"]: a for a in out}
+    c360 = by_name["Customer 360 - Aftermarket Master"]
+    assert c360["data_domain"] in ("customer", "aftersales")
+    assert c360["governance"] == "governed"
+    assert c360["has_triplet"] is True
+    # SQL dataflow scores higher complexity than a plain magic flow
+    sqlflow = by_name["Plant OEE Rollup (SQL DataFlow)"]
+    assert sqlflow["database_type"] == "SQL"
+    assert sqlflow["complexity"]["score"] >= 40
+    # writeback flow flagged as high complexity
+    capex = by_name["CapEx Tracker Aggregation (+writeback)"]
+    assert any("WRITEBACK" in d for d in capex["complexity"]["drivers"])
+
+
+def test_assess_summary_quick_wins():
+    s = assessment.domo_assess("summary")["portfolio"]
+    assert "by_domain" in s and "by_governance" in s
+
+
+def test_list_and_map_industry_model():
+    models = mapping.list_industry_models()["industries"]
+    assert "automotive" in models and "transport_shipping" in models
+    auto = mapping.list_industry_models("automotive")
+    assert auto["table_count"] > 50
+    assert "customer" in auto["domains"]
+
+
+def test_industry_model_map_customer360():
+    res = mapping.industry_model_map("ds-customer360-out-9999", industry="automotive")
+    assert res["target_table"] is not None
+    assert res["mapped_count"] >= 3
+    # identity columns should map into the customer domain
+    targets = [m["target"] for m in res["mappings"]]
+    assert any(t.startswith("customer.") for t in targets)
+
+
+def test_lakeflow_feasibility_ranks_and_flags_writeback():
+    out = feasibility.lakeflow_feasibility()
+    ratings = {r["source_system"]: r["rating"] for r in out["feasibility"]}
+    assert ratings.get("Salesforce") == "GREEN"
+    assert ratings.get("SQL Server (MES)") == "GREEN"
+    # writeback source must be RED (re-platform, not ingest)
+    assert ratings.get("Domo App/Form (writeback)") == "RED"
+    # ranked GREEN-first
+    order = [r["rating"] for r in out["feasibility"]]
+    assert order == sorted(order, key=lambda r: {"GREEN": 0, "AMBER": 1, "RED": 2}[r])
+
+
+def test_transpile_lineage_gate_passes():
+    res = transpile.transpile_lineage("customer360")
+    assert res["reconciliation"]["gate"] == "PASS"
+    assert res["counts"]["gold_columns"] == 14
+    assert res["counts"]["beast_modes_translated"] == res["counts"]["beast_modes_total"] == 5
+    # emitted SQL is present and real
+    assert "CREATE OR REPLACE VIEW" in res["sql"]["gold"]
+    assert "semantic_metrics" in res["sql"]["gold_semantic_metrics"].lower() or \
+           "Beast Mode" in res["sql"]["gold_semantic_metrics"]
+
+
+def test_migration_plan_end_to_end():
+    p = plan.migration_plan()
+    assert p["recommended_pilot"] is not None
+    assert len(p["waves"]) == 3
+    # wave 3 is the shadow-IT re-platform bucket
+    assert "Lakebase" in p["waves"][2]["theme"]
+    assert "source_feasibility" in p

@@ -1,0 +1,10 @@
+{
+  "_note": "Synthetic Domo Page census (dashboards are pages holding cards). Shaped after Domo's Page API (GET /v1/pages): id, name, owner, cardIds, children. All names are fictional.",
+  "pages": [
+    {"id": "page-aftermarket-exec-77", "name": "Aftermarket Executive", "owner": {"id": "u-101", "name": "Data Platform Team"}, "cardIds": ["card-c360-dashboard-001", "card-warranty-trend-002"], "_governance": "governed"},
+    {"id": "page-plant-ops-88", "name": "Plant Operations", "owner": {"id": "u-103", "name": "Plant Operations"}, "cardIds": ["card-oee-plant-003"], "_governance": "governed"},
+    {"id": "page-supplier-qa-91", "name": "Supplier Quality", "owner": {"id": "u-204", "name": "Quality Analyst"}, "cardIds": ["card-supplier-scorecard-004"], "_governance": "shadow"},
+    {"id": "page-finance-capex-93", "name": "CapEx Governance", "owner": {"id": "u-205", "name": "Finance Ops"}, "cardIds": ["card-capex-status-005"], "_governance": "shadow"},
+    {"id": "page-logistics-94", "name": "Inbound Logistics", "owner": {"id": "u-206", "name": "Logistics Analyst"}, "cardIds": ["card-lane-cost-006"], "_governance": "shadow"}
+  ]
+}

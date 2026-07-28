@@ -1,0 +1,32 @@
+{
+  "id": "card-c360-dashboard-001",
+  "title": "Aftermarket Customer 360",
+  "type": "kpi",
+  "datasources": [ { "dataSourceId": "ds-customer360-out-9999", "dataSourceName": "Customer_360_Aftermarket" } ],
+  "pageId": "page-aftermarket-exec-77",
+  "_note": "Beast Modes are CARD-LEVEL calculated fields defined in Domo's calc language (SQL-analog, NOT DAX). They do NOT exist in Magic ETL JSON. The transpiler MUST fold these into the gold view (or a semantic layer) or reconciliation passes on the base dataset while the card still shows wrong numbers.",
+  "beastModes": [
+    { "name": "Claim Rate",
+      "expression": "SUM(`total_claims`) / NULLIF(COUNT(DISTINCT `customer_id`), 0)",
+      "format": { "type": "number", "precision": 2 } },
+    { "name": "Warranty Cost Ratio",
+      "expression": "SUM(`total_claim_amount`) / NULLIF(SUM(`parts_revenue`), 0)",
+      "format": { "type": "percent", "precision": 1 } },
+    { "name": "At-Risk Customers",
+      "expression": "COUNT(DISTINCT CASE WHEN `risk_flag` = 'HIGH' THEN `customer_id` END)",
+      "format": { "type": "number" } },
+    { "name": "Net LTV (Top Tier)",
+      "expression": "SUM(CASE WHEN `account_tier` IN ('PLATINUM','GOLD') THEN `lifetime_value` ELSE 0 END)",
+      "format": { "type": "currency", "currency": "USD" } },
+    { "name": "Avg Resolution SLA Flag",
+      "expression": "AVG(CASE WHEN `avg_resolution_hrs` > 48 THEN 1.0 ELSE 0.0 END)",
+      "format": { "type": "percent", "precision": 0 } }
+  ],
+  "filters": [
+    { "column": "region", "operator": "IN", "values": ["North America"] }
+  ],
+  "series": [
+    { "column": "risk_flag", "aggregation": "GROUP" },
+    { "column": "lifetime_value", "aggregation": "SUM" }
+  ]
+}

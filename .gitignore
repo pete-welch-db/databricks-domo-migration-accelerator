@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+*.egg-info/
+build/
+dist/
+out/
+.pytest_cache/
+.DS_Store
+
+# generated pipeline bundles + local config
+generated/
+.pseudo_domo_config.json

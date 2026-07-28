@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "pseudo-domo": {
+      "command": ".venv/bin/python",
+      "args": ["-m", "pseudo_domo_mcp.server"],
+      "env": {
+        "PSEUDO_DOMO_TRANSPORT": "stdio",
+        "PSEUDO_DOMO_PROVIDER": "fixture"
+      }
+    }
+  }
+}

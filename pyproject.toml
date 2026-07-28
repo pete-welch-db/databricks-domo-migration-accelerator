@@ -1,0 +1,40 @@
+[project]
+name = "pseudo-domo-mcp"
+version = "0.1.0"
+description = "Assess a Domo estate and migrate it to Databricks — an MCP server + web console for discovery, assessment, industry-model mapping, SDP transpile, and Lakeflow Connect feasibility."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+keywords = ["domo", "databricks", "mcp", "migration", "lakeflow", "etl"]
+dependencies = [
+    "fastmcp>=2.0.0",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "httpx>=0.27"]
+
+[project.scripts]
+pseudo-domo-mcp = "pseudo_domo_mcp.server:main"
+pseudo-domo-console = "pseudo_domo_mcp.webapp.app:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = [
+    "pseudo_domo_mcp",
+    "pseudo_domo_mcp.tools",
+    "pseudo_domo_mcp.core",
+    "pseudo_domo_mcp.providers",
+    "pseudo_domo_mcp.transpiler",
+    "pseudo_domo_mcp.webapp",
+]
+
+[tool.setuptools.package-data]
+"pseudo_domo_mcp.webapp" = ["static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

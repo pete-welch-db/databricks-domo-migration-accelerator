@@ -1,0 +1,142 @@
+# Pseudo-Domo MCP
+
+**Assess a Domo estate and migrate it to Databricks — via an MCP server *and* a
+web console.**
+
+Pseudo-Domo packages the Domo discovery / assessment / migration workflow two
+ways over one engine:
+
+- an **MCP server** (FastMCP, stdio + streamable-HTTP) so an AI client (Claude
+  Code, Cursor, Genie Code, …) can drive the migration conversationally, and
+- an **operator web console** (FastAPI + a zero-build HTML/JS frontend) that
+  lets you click a Magic ETL or dashboard, **Analyze** its data flow, **Draft**
+  the Databricks pipeline code, and **Create** it — with catalog/schema config.
+
+It runs **fully offline on synthetic fixtures** shaped after Domo's public REST
+API — no live tenant, no Databricks workspace, no network required. When you're
+ready, point it at a real Domo tenant (OAuth) and a real Databricks workspace
+(CLI/OAuth) via config, and the same tools deploy real Lakeflow Declarative
+Pipelines.
+
+> Everything ships customer-agnostic. The bundled data is a fictional company
+> ("Northwind Manufacturing"). The industry data models under `models/` are
+> vendored from the open-source
+> [Databricks Industry Data Models](https://github.com/databricks-industry-solutions/lakehouse-industry-data-models);
+> the MCP scaffold follows the
+> [ai-dev-kit](https://github.com/databricks-solutions/ai-dev-kit)
+> `databricks-mcp-server` pattern.
+
+## Why "pseudo-Domo"
+
+It impersonates the *surface* of a Domo tenant (datasets, dataflows, cards,
+pages, sources) so the whole discover → assess → analyze → draft → create
+workflow is exercisable before you have tenant credentials. All tenant reads go
+through a provider abstraction (`pseudo_domo_mcp/providers/`): `FixtureProvider`
+(default, offline) today; `LiveProvider` (real Domo REST — OAuth2
+client_credentials) when creds land. Swapping is one config change; the tools
+never change.
+
+## The workflow
+
+```
+ Discover ─► Assess ─►  Analyze  ─►  Draft  ─►  Create
+ (census)   (score)    (DAG viz)    (SDP SQL)   (deployable bundle + optional deploy)
+```
+
+- **Analyze** renders the Magic ETL DAG as a medallion-layered (bronze → silver
+  → gold) data-flow visual — built from the *same* parser that transpiles it, so
+  what you see is what gets built.
+- **Draft** runs the 6-agent transpiler and returns bronze/silver/gold Spark
+  SQL, a semantic-metrics view that folds the card's Beast Modes, and a
+  **PASS/FAIL reconcile gate** (schema parity + Beast-Mode coverage).
+- **Create** is progressive: it *always* writes a deployable Databricks Asset
+  Bundle (`databricks.yml` + SQL) locally and shows the deploy command; if a
+  Databricks CLI profile is configured, it also runs `databricks bundle deploy`
+  to create the pipeline for real.
+
+## The MCP tools
+
+| Tool | What it does |
+|---|---|
+| `domo_discover` | Inventory the tenant — datasets/dataflows/cards/pages/sources + governed/shadow split. |
+| `domo_assess` | Classify each object by data **domain** + **source**, score **governance**, **complexity**, **value**. |
+| `list_industry_models` | List vendored industry models (`automotive`, `transport_shipping`) + their domains/tables. |
+| `industry_model_map` | Draft-map a Domo DataSet's columns → a canonical industry-model table (similarity + confidence + unmapped flags). |
+| `lakeflow_feasibility` | Score each source system GREEN/AMBER/RED for **Lakeflow Connect** ingestion + recommended pattern. |
+| `transpile_lineage` | 6-agent transpiler → medallion Spark SQL + folded Beast Modes + repoint plan + reconcile gate. |
+| `migration_plan` | Aggregate all of the above into a prioritized, value-driven **wave plan**. |
+
+## Quick start
+
+```bash
+uv venv --python 3.11 .venv && source .venv/bin/activate
+uv pip install -e .            # add --index-url <your-mirror> behind a proxy
+
+# 1) Web console (browse → analyze → draft → create)
+python -m pseudo_domo_mcp.webapp.app        # http://127.0.0.1:8010
+
+# 2) MCP server — stdio (for Claude Code / Cursor)
+python -m pseudo_domo_mcp.server
+
+# 3) MCP server — HTTP
+PSEUDO_DOMO_TRANSPORT=http PORT=8000 python -m pseudo_domo_mcp.server
+```
+
+> `127.0.0.1:8000/mcp` is the **MCP protocol** endpoint (it speaks
+> `text/event-stream`), not a web page — open a browser at the **web console**
+> port instead.
+
+### Connect the MCP to Claude Code
+
+`.mcp.json` in this repo registers the stdio server. Then ask, e.g.:
+
+> "Discover the Domo tenant, give me the migration plan, then transpile the pilot."
+
+## Configuration
+
+Set in the web console's **⚙ Config** panel or via env (persisted to
+`.pseudo_domo_config.json`, git-ignored):
+
+| Setting | Purpose |
+|---|---|
+| `catalog` / `schema` | Target Unity Catalog location for generated pipelines. |
+| `databricks_profile` | Databricks CLI profile (`databricks auth login`). Empty = write bundle files only; set = deploy for real. OAuth is handled by the CLI; no workspace secret is stored. |
+| `domo_provider` | `fixture` (offline) or `live` (Domo REST). |
+| `domo_client_id` + `DOMO_CLIENT_SECRET` (env) | Domo OAuth2 client_credentials. The **secret** is read from the environment, never written to config. |
+
+## Test
+
+```bash
+python -m pytest -q      # end-to-end: discover→assess→map→feasibility→transpile gate→plan
+```
+
+## Going live
+
+`LiveProvider` (`pseudo_domo_mcp/providers/live_provider.py`) documents the exact
+Domo REST endpoints to fill in. Note Domo's **public** API exposes DataSet schema
++ card/page metadata, but **Magic ETL internals and Beast Mode expressions
+require the dataflow/card export (private API)** — the transpile path needs that
+export. Set `domo_provider=live` + credentials, and implement the stubbed reads.
+
+## Layout
+
+```
+pseudo_domo_mcp/
+  server.py            FastMCP server (stdio + streamable-http)
+  webapp/              FastAPI console + zero-build HTML/CSS/JS frontend
+  tools/               thin @mcp.tool wrappers (one per capability)
+  core/                engine: provider select, DDL parse, classify, map,
+                       feasibility, graph (DAG), config, bundle (DAB writer)
+  providers/           FixtureProvider (offline) | LiveProvider (Domo REST stub)
+  transpiler/          6-agent Domo→Databricks transpiler + importable pipeline.run()
+fixtures/
+  tenant/              synthetic Domo census (datasets/dataflows/cards/pages)
+  lineages/            full triplets (Magic ETL + schema + Beast Modes) for transpile
+models/                vendored industry-model DDL (automotive, transport_shipping)
+tests/                 end-to-end pytest
+```
+
+## License
+
+See `LICENSE`. Vendored industry-model DDL retains its upstream license (see
+`models/README.md`).

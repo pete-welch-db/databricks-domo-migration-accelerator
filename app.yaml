@@ -1,0 +1,15 @@
+# Databricks App manifest (HTTP MCP).
+#
+# NOT deployed in this build (local-first per project decision). Kept as the
+# ready path: `databricks apps deploy` from this dir will serve the MCP over
+# streamable-HTTP. For Genie Code MCP discovery the app name must start with
+# `mcp-` (e.g. `mcp-pseudo-domo`).
+#
+# The App runtime injects DATABRICKS_HOST + an OAuth token; the server uses
+# PORT (provided by the App) and PSEUDO_DOMO_TRANSPORT=http.
+command: ["python", "-m", "pseudo_domo_mcp.server"]
+env:
+  - name: PSEUDO_DOMO_TRANSPORT
+    value: "http"
+  - name: PSEUDO_DOMO_PROVIDER
+    value: "fixture"   # switch to "live" once DOMO_CLIENT_ID/SECRET are set as App secrets

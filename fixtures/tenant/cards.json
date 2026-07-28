@@ -1,0 +1,35 @@
+{
+  "_note": "Synthetic Domo Card census. Beast Modes (card-level calc fields) are NOT in Domo's public API — only card metadata (id, title, type, page, bound datasets) is broadly available; full Beast Mode expressions come from the card export. This census carries discovery metadata + a beastModeCount so assessment can size the #1 migration gotcha. The Customer 360 card's full Beast Modes live in fixtures/lineages/card_customer360_beastmodes.json.",
+  "cards": [
+    {
+      "id": "card-c360-dashboard-001", "title": "Aftermarket Customer 360", "type": "kpi",
+      "pageId": "page-aftermarket-exec-77", "boundDatasetIds": ["ds-customer360-out-9999"],
+      "beastModeCount": 5, "_governance": "governed", "_value_domain": "customer"
+    },
+    {
+      "id": "card-warranty-trend-002", "title": "Warranty Claim Trend", "type": "line",
+      "pageId": "page-aftermarket-exec-77", "boundDatasetIds": ["ds-warranty-claims-0001"],
+      "beastModeCount": 3, "_governance": "governed", "_value_domain": "aftersales"
+    },
+    {
+      "id": "card-oee-plant-003", "title": "Plant OEE by Line", "type": "bar",
+      "pageId": "page-plant-ops-88", "boundDatasetIds": ["ds-plant-oee-rollup-102"],
+      "beastModeCount": 4, "_governance": "governed", "_value_domain": "manufacturing"
+    },
+    {
+      "id": "card-supplier-scorecard-004", "title": "Supplier Quality Scorecard", "type": "table",
+      "pageId": "page-supplier-qa-91", "boundDatasetIds": ["ds-supplier-quality-out-301"],
+      "beastModeCount": 6, "_governance": "shadow", "_value_domain": "quality"
+    },
+    {
+      "id": "card-capex-status-005", "title": "CapEx Approval Status", "type": "table",
+      "pageId": "page-finance-capex-93", "boundDatasetIds": ["ds-capex-summary-out-302"],
+      "beastModeCount": 2, "_governance": "shadow", "_value_domain": "finance"
+    },
+    {
+      "id": "card-lane-cost-006", "title": "Inbound Lane Cost Ranking", "type": "bar",
+      "pageId": "page-logistics-94", "boundDatasetIds": ["ds-lane-cost-out-303"],
+      "beastModeCount": 3, "_governance": "shadow", "_value_domain": "logistics"
+    }
+  ]
+}

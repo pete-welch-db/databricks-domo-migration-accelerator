@@ -1,0 +1,25 @@
+{
+  "id": "ds-customer360-out-9999",
+  "name": "Customer_360_Aftermarket",
+  "rows": 2118442,
+  "columns": 14,
+  "schema": {
+    "columns": [
+      { "name": "customer_id",        "type": "STRING",   "visible": true },
+      { "name": "customer_name",      "type": "STRING",   "visible": true },
+      { "name": "region",             "type": "STRING",   "visible": true },
+      { "name": "segment",            "type": "STRING",   "visible": true },
+      { "name": "account_tier",       "type": "STRING",   "visible": true },
+      { "name": "total_claims",       "type": "LONG",     "visible": true },
+      { "name": "total_claim_amount", "type": "DECIMAL",  "visible": true },
+      { "name": "avg_claim_age",      "type": "DOUBLE",   "visible": true },
+      { "name": "open_tickets",       "type": "LONG",     "visible": true },
+      { "name": "avg_resolution_hrs", "type": "DOUBLE",   "visible": true },
+      { "name": "parts_order_count",  "type": "LONG",     "visible": true },
+      { "name": "parts_revenue",      "type": "DECIMAL",  "visible": true },
+      { "name": "lifetime_value",     "type": "DECIMAL",  "visible": true },
+      { "name": "risk_flag",          "type": "STRING",   "visible": true }
+    ]
+  },
+  "_note": "GOLD SCHEMA CONTRACT: the Databricks gold view MUST expose these exact column names and Domo-compatible types, or the Domo->Databricks connector swap breaks every card that binds to this dataset. Domo type map -> Spark: STRING->STRING, LONG->BIGINT, DECIMAL->DECIMAL(18,2), DOUBLE->DOUBLE."
+}

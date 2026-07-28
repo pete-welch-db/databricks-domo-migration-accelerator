@@ -1,0 +1,65 @@
+{
+  "id": "df-customer360-magic-0001",
+  "name": "Customer 360 - Aftermarket Master",
+  "description": "Blends warranty claims, service tickets, parts orders and account master into a per-customer 360 view. ~2.1M output rows, refreshes 4x/day.",
+  "databaseType": "MAGIC",
+  "enabled": true,
+  "engineProperties": { "kettle.mode": "STRICT" },
+  "inputs": [
+    { "dataSourceId": "ds-warranty-claims-0001", "dataSourceName": "Warranty_Claims_ERP", "executeFlowWhenUpdated": true },
+    { "dataSourceId": "ds-service-tickets-002", "dataSourceName": "Service_Tickets_ITSM", "executeFlowWhenUpdated": true },
+    { "dataSourceId": "ds-parts-orders-0003", "dataSourceName": "Parts_Orders_WMS", "executeFlowWhenUpdated": true },
+    { "dataSourceId": "ds-account-master-004", "dataSourceName": "Account_Master_CRM", "executeFlowWhenUpdated": false }
+  ],
+  "actions": [
+    { "id": "a1", "type": "LoadFromVault", "name": "Load Warranty Claims", "dataSourceId": "ds-warranty-claims-0001", "gui": { "x": 40, "y": 40 } },
+    { "id": "a2", "type": "LoadFromVault", "name": "Load Service Tickets", "dataSourceId": "ds-service-tickets-002", "gui": { "x": 40, "y": 160 } },
+    { "id": "a3", "type": "LoadFromVault", "name": "Load Parts Orders", "dataSourceId": "ds-parts-orders-0003", "gui": { "x": 40, "y": 280 } },
+    { "id": "a4", "type": "LoadFromVault", "name": "Load Account Master", "dataSourceId": "ds-account-master-004", "gui": { "x": 40, "y": 400 } },
+
+    { "id": "a5", "type": "Filter", "name": "Active claims only", "dependsOn": ["a1"],
+      "filters": [ { "column": "claim_status", "operator": "IN", "values": ["OPEN", "IN_REVIEW", "APPROVED"] },
+                   { "column": "claim_date", "operator": "GREATER_THAN", "value": "2023-01-01" } ],
+      "filterCombination": "AND" },
+
+    { "id": "a6", "type": "AddFormula", "name": "Claim aging bucket", "dependsOn": ["a5"],
+      "formulas": [ { "outputColumn": "claim_age_days", "expression": "DATEDIFF(CURRENT_DATE(), `claim_date`)" },
+                    { "outputColumn": "aging_bucket",
+                      "expression": "CASE WHEN DATEDIFF(CURRENT_DATE(), `claim_date`) <= 30 THEN '0-30' WHEN DATEDIFF(CURRENT_DATE(), `claim_date`) <= 90 THEN '31-90' ELSE '90+' END" } ] },
+
+    { "id": "a7", "type": "GroupBy", "name": "Claims by customer", "dependsOn": ["a6"],
+      "groupByColumns": ["customer_id"],
+      "aggregations": [ { "outputColumn": "total_claims", "function": "COUNT", "column": "claim_id" },
+                        { "outputColumn": "total_claim_amount", "function": "SUM", "column": "claim_amount" },
+                        { "outputColumn": "avg_claim_age", "function": "AVG", "column": "claim_age_days" } ] },
+
+    { "id": "a8", "type": "GroupBy", "name": "Tickets by customer", "dependsOn": ["a2"],
+      "groupByColumns": ["customer_id"],
+      "aggregations": [ { "outputColumn": "open_tickets", "function": "COUNT", "column": "ticket_id" },
+                        { "outputColumn": "avg_resolution_hrs", "function": "AVG", "column": "resolution_hours" } ] },
+
+    { "id": "a9", "type": "GroupBy", "name": "Parts spend by customer", "dependsOn": ["a3"],
+      "groupByColumns": ["customer_id"],
+      "aggregations": [ { "outputColumn": "parts_order_count", "function": "COUNT", "column": "order_id" },
+                        { "outputColumn": "parts_revenue", "function": "SUM", "column": "order_total" } ] },
+
+    { "id": "a10", "type": "SelectValues", "name": "Trim account master", "dependsOn": ["a4"],
+      "selectedColumns": ["customer_id", "customer_name", "region", "segment", "account_tier"] },
+
+    { "id": "a11", "type": "MergeJoin", "name": "Join claims+tickets", "dependsOn": ["a7", "a8"],
+      "joinType": "LEFT", "leftKeys": ["customer_id"], "rightKeys": ["customer_id"] },
+    { "id": "a12", "type": "MergeJoin", "name": "Join +parts", "dependsOn": ["a11", "a9"],
+      "joinType": "LEFT", "leftKeys": ["customer_id"], "rightKeys": ["customer_id"] },
+    { "id": "a13", "type": "MergeJoin", "name": "Join +account master", "dependsOn": ["a12", "a10"],
+      "joinType": "INNER", "leftKeys": ["customer_id"], "rightKeys": ["customer_id"] },
+
+    { "id": "a14", "type": "AddFormula", "name": "Health + value scores", "dependsOn": ["a13"],
+      "formulas": [
+        { "outputColumn": "lifetime_value", "expression": "COALESCE(`parts_revenue`,0) - COALESCE(`total_claim_amount`,0)" },
+        { "outputColumn": "risk_flag",
+          "expression": "CASE WHEN `total_claims` > 5 AND `avg_claim_age` > 60 THEN 'HIGH' WHEN `total_claims` > 2 THEN 'MEDIUM' ELSE 'LOW' END" } ] },
+
+    { "id": "a15", "type": "PublishToVault", "name": "Publish Customer 360", "dependsOn": ["a14"],
+      "dataSourceName": "Customer_360_Aftermarket", "dataSourceId": "ds-customer360-out-9999" }
+  ]
+}

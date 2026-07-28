@@ -1,0 +1,95 @@
+{
+  "_note": "Synthetic Domo tenant DataSet census (fictional company 'Northwind Manufacturing'), shaped after Domo's PUBLIC DataSet API (GET /v1/datasets). Public fields only: id, name, description, rows, columns, owner, dataCurrentAt, createdAt, updatedAt, pdpEnabled. `_source_system` and `_governance` are NOT public API fields — they are enrichment inferred during assessment (pre-tagged here so the fixture is self-describing). Column types use Domo's set: STRING|LONG|DECIMAL|DOUBLE|DATE|DATETIME. All names/companies are fictional.",
+  "datasets": [
+    {
+      "id": "ds-warranty-claims-0001",
+      "name": "Warranty_Claims_ERP",
+      "description": "Warranty claim transactions extracted from the ERP. Governed IT pipeline.",
+      "rows": 4820113, "columns": 22,
+      "owner": {"id": "u-101", "name": "Data Platform Team"},
+      "dataCurrentAt": "2025-06-27T06:00:00Z", "createdAt": "2022-03-01T00:00:00Z", "updatedAt": "2025-06-27T06:00:00Z",
+      "pdpEnabled": false,
+      "_source_system": "Oracle ERP", "_governance": "governed"
+    },
+    {
+      "id": "ds-service-tickets-002",
+      "name": "Service_Tickets_ITSM",
+      "description": "Service desk tickets from the ITSM tool. Governed IT pipeline.",
+      "rows": 1290551, "columns": 18,
+      "owner": {"id": "u-101", "name": "Data Platform Team"},
+      "dataCurrentAt": "2025-06-27T05:30:00Z", "createdAt": "2021-11-10T00:00:00Z", "updatedAt": "2025-06-27T05:30:00Z",
+      "pdpEnabled": false,
+      "_source_system": "ServiceNow", "_governance": "governed"
+    },
+    {
+      "id": "ds-parts-orders-0003",
+      "name": "Parts_Orders_WMS",
+      "description": "Aftermarket parts orders from the warehouse management system. Governed IT pipeline.",
+      "rows": 8801243, "columns": 26,
+      "owner": {"id": "u-102", "name": "Supply Chain Analytics"},
+      "dataCurrentAt": "2025-06-27T04:00:00Z", "createdAt": "2021-06-15T00:00:00Z", "updatedAt": "2025-06-27T04:00:00Z",
+      "pdpEnabled": false,
+      "_source_system": "SQL Server (WMS)", "_governance": "governed"
+    },
+    {
+      "id": "ds-account-master-004",
+      "name": "Account_Master_CRM",
+      "description": "Customer/account master synced from the CRM. Governed IT pipeline.",
+      "rows": 214880, "columns": 31,
+      "owner": {"id": "u-102", "name": "Supply Chain Analytics"},
+      "dataCurrentAt": "2025-06-27T03:00:00Z", "createdAt": "2020-01-05T00:00:00Z", "updatedAt": "2025-06-27T03:00:00Z",
+      "pdpEnabled": true,
+      "_source_system": "Salesforce", "_governance": "governed"
+    },
+    {
+      "id": "ds-customer360-out-9999",
+      "name": "Customer_360_Aftermarket",
+      "description": "Blended per-customer 360 output DataSet (published by the Customer 360 Magic ETL).",
+      "rows": 2118442, "columns": 14,
+      "owner": {"id": "u-101", "name": "Data Platform Team"},
+      "dataCurrentAt": "2025-06-27T06:15:00Z", "createdAt": "2022-04-01T00:00:00Z", "updatedAt": "2025-06-27T06:15:00Z",
+      "pdpEnabled": false,
+      "_source_system": "Domo (derived)", "_governance": "governed"
+    },
+    {
+      "id": "ds-plant-oee-101",
+      "name": "Plant_OEE_Daily_SQLServer",
+      "description": "Daily OEE / line-availability metrics from the plant MES on SQL Server. Governed IT pipeline.",
+      "rows": 730421, "columns": 19,
+      "owner": {"id": "u-103", "name": "Plant Operations"},
+      "dataCurrentAt": "2025-06-27T02:00:00Z", "createdAt": "2021-09-01T00:00:00Z", "updatedAt": "2025-06-27T02:00:00Z",
+      "pdpEnabled": false,
+      "_source_system": "SQL Server (MES)", "_governance": "governed"
+    },
+    {
+      "id": "ds-supplier-scorecard-xls-201",
+      "name": "Supplier_Scorecard_Manual_XLS",
+      "description": "Supplier quality scorecard maintained by hand in Excel and uploaded via Domo Workbench. Shadow IT / citizen dev.",
+      "rows": 3120, "columns": 12,
+      "owner": {"id": "u-204", "name": "Quality Analyst"},
+      "dataCurrentAt": "2025-06-21T14:22:00Z", "createdAt": "2023-02-14T00:00:00Z", "updatedAt": "2025-06-21T14:22:00Z",
+      "pdpEnabled": false,
+      "_source_system": "Excel/Workbench", "_governance": "shadow"
+    },
+    {
+      "id": "ds-capex-tracker-webform-202",
+      "name": "CapEx_Approval_Tracker_WebForm",
+      "description": "CapEx approval requests captured via a Domo App webform with writeback. Shadow IT / citizen dev, transactional.",
+      "rows": 8894, "columns": 16,
+      "owner": {"id": "u-205", "name": "Finance Ops"},
+      "dataCurrentAt": "2025-06-27T12:05:00Z", "createdAt": "2023-08-01T00:00:00Z", "updatedAt": "2025-06-27T12:05:00Z",
+      "pdpEnabled": true,
+      "_source_system": "Domo App/Form (writeback)", "_governance": "shadow"
+    },
+    {
+      "id": "ds-logistics-lanes-sheets-203",
+      "name": "Inbound_Logistics_Lanes_GSheet",
+      "description": "Inbound freight lane costs pulled from a Google Sheet a logistics analyst maintains. Shadow IT / citizen dev.",
+      "rows": 5410, "columns": 14,
+      "owner": {"id": "u-206", "name": "Logistics Analyst"},
+      "dataCurrentAt": "2025-06-26T09:00:00Z", "createdAt": "2024-01-20T00:00:00Z", "updatedAt": "2025-06-26T09:00:00Z",
+      "pdpEnabled": false,
+      "_source_system": "Google Sheets", "_governance": "shadow"
+    }
+  ]
+}
