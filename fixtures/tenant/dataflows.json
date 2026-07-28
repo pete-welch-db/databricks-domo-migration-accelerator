@@ -23,7 +23,7 @@
       "owner": {"id": "u-103", "name": "Plant Operations"},
       "runCadence": "daily",
       "_governance": "governed",
-      "_triplet_lineage_id": null
+      "_triplet_lineage_id": "plant_oee"
     },
     {
       "id": "df-supplier-magic-0003",
@@ -35,7 +35,7 @@
       "owner": {"id": "u-204", "name": "Quality Analyst"},
       "runCadence": "weekly",
       "_governance": "shadow",
-      "_triplet_lineage_id": null
+      "_triplet_lineage_id": "supplier_quality"
     },
     {
       "id": "df-capex-magic-0004",
@@ -48,7 +48,7 @@
       "runCadence": "on-submit",
       "_governance": "shadow",
       "_has_writeback": true,
-      "_triplet_lineage_id": null
+      "_triplet_lineage_id": "capex_writeback"
     },
     {
       "id": "df-logistics-magic-0005",
@@ -60,7 +60,7 @@
       "owner": {"id": "u-206", "name": "Logistics Analyst"},
       "runCadence": "weekly",
       "_governance": "shadow",
-      "_triplet_lineage_id": null
+      "_triplet_lineage_id": "inbound_lane"
     }
   ]
 }

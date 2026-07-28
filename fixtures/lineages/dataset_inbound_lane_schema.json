@@ -1,0 +1,18 @@
+{
+  "id": "ds-lane-cost-out-303",
+  "name": "Inbound_Lane_Cost",
+  "rows": 5410,
+  "columns": 8,
+  "schema": {
+    "columns": [
+      { "name": "lane_id",         "type": "STRING",  "visible": true },
+      { "name": "origin",          "type": "STRING",  "visible": true },
+      { "name": "destination",     "type": "STRING",  "visible": true },
+      { "name": "carrier",         "type": "STRING",  "visible": true },
+      { "name": "shipment_count",  "type": "LONG",    "visible": true },
+      { "name": "total_weight_kg", "type": "DOUBLE",  "visible": true },
+      { "name": "lane_cost",       "type": "DECIMAL", "visible": true },
+      { "name": "cost_per_kg",     "type": "DOUBLE",  "visible": true }
+    ]
+  }
+}

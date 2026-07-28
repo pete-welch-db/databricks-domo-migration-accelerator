@@ -1,0 +1,13 @@
+{
+  "id": "card-oee-plant-003",
+  "title": "Plant OEE by Line",
+  "type": "bar",
+  "datasources": [ { "dataSourceId": "ds-plant-oee-rollup-102", "dataSourceName": "Plant_OEE_Rollup" } ],
+  "pageId": "page-plant-ops-88",
+  "beastModes": [
+    { "name": "Fleet Avg OEE", "expression": "AVG(`avg_oee`)", "format": { "type": "percent", "precision": 1 } },
+    { "name": "Lines Below Target", "expression": "COUNT(DISTINCT CASE WHEN `avg_oee` < 0.85 THEN `line_id` END)", "format": { "type": "number" } }
+  ],
+  "filters": [],
+  "series": [ { "column": "avg_oee", "aggregation": "AVG" } ]
+}

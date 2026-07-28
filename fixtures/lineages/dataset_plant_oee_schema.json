@@ -1,0 +1,16 @@
+{
+  "id": "ds-plant-oee-rollup-102",
+  "name": "Plant_OEE_Rollup",
+  "rows": 730421,
+  "columns": 6,
+  "schema": {
+    "columns": [
+      { "name": "plant_id",         "type": "STRING", "visible": true },
+      { "name": "line_id",          "type": "STRING", "visible": true },
+      { "name": "avg_availability", "type": "DOUBLE", "visible": true },
+      { "name": "avg_performance",  "type": "DOUBLE", "visible": true },
+      { "name": "avg_quality",      "type": "DOUBLE", "visible": true },
+      { "name": "avg_oee",          "type": "DOUBLE", "visible": true }
+    ]
+  }
+}

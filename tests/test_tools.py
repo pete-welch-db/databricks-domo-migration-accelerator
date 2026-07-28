@@ -99,3 +99,43 @@ def test_migration_plan_end_to_end():
     # wave 3 is the shadow-IT re-platform bucket
     assert "Lakebase" in p["waves"][2]["theme"]
     assert "source_feasibility" in p
+
+
+def test_governance_is_inferred_not_pretagged():
+    from pseudo_domo_mcp.core import governance
+    # a managed connector + team owner + regular schedule -> governed
+    df = {"owner": {"name": "Data Platform Team"}, "runCadence": "4x/day"}
+    inp = [{"_source_system": "Salesforce"}, {"_source_system": "SQL Server"}]
+    g = governance.infer(df, inp)
+    assert g["governance"] == "governed" and g["confidence"] > 0.5
+    assert any("managed" in s for s in g["signals"])
+    # a writeback app -> shadow, with an explanatory signal
+    df2 = {"owner": {"name": "Finance Ops"}, "runCadence": "on-submit", "_has_writeback": True}
+    g2 = governance.infer(df2, [{"_source_system": "Domo App/Form (writeback)"}])
+    assert g2["governance"] == "shadow"
+    assert any("writeback" in s.lower() for s in g2["signals"])
+
+
+def test_assess_exposes_governance_signals():
+    out = assessment.domo_assess("dataflows")["assessments"]
+    for a in out:
+        assert "governance_signals" in a and isinstance(a["governance_signals"], list)
+        assert 0.0 <= a["governance_confidence"] <= 1.0
+
+
+def test_sdp_renders_real_lakeflow_sql_and_python():
+    from pseudo_domo_mcp.transpiler import pipeline
+    from pseudo_domo_mcp.core.domo_client import get_provider
+    from pseudo_domo_mcp.core import sdp
+    import tempfile, os
+    p = get_provider()
+    d = tempfile.mkdtemp()
+    r = pipeline.run("customer360", p.lineages_dir_path(),
+                     os.path.join(d, "o"), os.path.join(d, "s"))
+    sql = sdp.render(r, "sql")
+    assert "STREAMING TABLE" in sql and "MATERIALIZED VIEW" in sql
+    assert "EXPECT" in sql                       # gold expectations
+    assert "WITH METRICS" in sql                 # metric view for Beast Modes
+    py = sdp.render(r, "python")
+    assert "@dlt.table" in py and "expect_all_or_drop" in py
+    assert "METRIC VIEW" in py                   # recommends metric view

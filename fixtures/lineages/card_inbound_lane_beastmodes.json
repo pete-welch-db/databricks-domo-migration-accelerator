@@ -1,0 +1,14 @@
+{
+  "id": "card-lane-cost-006",
+  "title": "Inbound Lane Cost Ranking",
+  "type": "bar",
+  "datasources": [ { "dataSourceId": "ds-lane-cost-out-303", "dataSourceName": "Inbound_Lane_Cost" } ],
+  "pageId": "page-logistics-94",
+  "beastModes": [
+    { "name": "Avg Cost per Kg", "expression": "AVG(`cost_per_kg`)", "format": { "type": "currency", "currency": "USD", "precision": 3 } },
+    { "name": "Total Lane Spend", "expression": "SUM(`lane_cost`)", "format": { "type": "currency", "currency": "USD" } },
+    { "name": "High Cost Lanes", "expression": "COUNT(DISTINCT CASE WHEN `cost_per_kg` > 2.5 THEN `lane_id` END)", "format": { "type": "number" } }
+  ],
+  "filters": [],
+  "series": [ { "column": "cost_per_kg", "aggregation": "SUM" } ]
+}

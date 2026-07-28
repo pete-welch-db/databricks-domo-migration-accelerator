@@ -1,0 +1,18 @@
+{
+  "id": "ds-supplier-quality-out-301",
+  "name": "Supplier_Quality_Scorecard",
+  "rows": 3120,
+  "columns": 8,
+  "schema": {
+    "columns": [
+      { "name": "supplier_id",   "type": "STRING",  "visible": true },
+      { "name": "supplier_name", "type": "STRING",  "visible": true },
+      { "name": "audit_score",   "type": "DOUBLE",  "visible": true },
+      { "name": "order_lines",   "type": "LONG",    "visible": true },
+      { "name": "parts_spend",   "type": "DECIMAL", "visible": true },
+      { "name": "defect_units",  "type": "LONG",    "visible": true },
+      { "name": "defect_rate",   "type": "DOUBLE",  "visible": true },
+      { "name": "quality_grade", "type": "STRING",  "visible": true }
+    ]
+  }
+}

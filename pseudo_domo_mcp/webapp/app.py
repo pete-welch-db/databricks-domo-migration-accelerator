@@ -26,6 +26,8 @@ from fastapi.staticfiles import StaticFiles
 
 from ..core.domo_client import get_provider
 from ..core import config as cfgmod
+from ..core import gitlink
+from ..core import sdp
 from ..core.graph import build_graph
 from ..core.bundle import write_bundle
 from ..transpiler import pipeline
@@ -54,6 +56,14 @@ def estate() -> Dict[str, Any]:
     return {"summary": summary, "dataflows": assessed, "cards": list(cards.values())}
 
 
+@app.get("/api/inventory")
+def inventory(asset_type: str = "", search: str = "") -> Dict[str, Any]:
+    """Typed, searchable asset inventory (connectors, magic_etl, sql_dataflow,
+    dataset, card, beast_mode, page). Powers the Discover step's browse/search/
+    filter and the connector remap plan."""
+    return discovery.domo_inventory(asset_type=asset_type, search=search)
+
+
 @app.get("/api/analyze/{lineage_id}")
 def analyze(lineage_id: str) -> Dict[str, Any]:
     """Analyze/preview: the Magic ETL DAG as a medallion-layered graph."""
@@ -72,13 +82,20 @@ def analyze(lineage_id: str) -> Dict[str, Any]:
 
 
 @app.get("/api/draft/{lineage_id}")
-def draft(lineage_id: str) -> Dict[str, Any]:
-    """Draft: run the transpiler, return SDP SQL + reconcile gate (no deploy)."""
+def draft(lineage_id: str, language: str = "") -> Dict[str, Any]:
+    """Draft: run the transpiler, return real SDP (Lakeflow Declarative Pipeline)
+    code in the chosen language + the reconcile gate (no deploy)."""
     p = get_provider()
     fixtures = getattr(p, "lineages_dir_path", lambda: None)()
     tmp = tempfile.mkdtemp(prefix=f"draft_{lineage_id}_")
     result = pipeline.run(lineage_id, fixtures,
                           os.path.join(tmp, "out"), os.path.join(tmp, "sql"))
+    lang = language or cfgmod.load_config().pipeline_language
+    if result.get("structured"):
+        result["sdp"] = {
+            "language": lang,
+            "code": sdp.render(result, lang),
+        }
     return result
 
 
@@ -106,6 +123,14 @@ def create(lineage_id: str, payload: Optional[Dict[str, Any]] = Body(default=Non
 
     os.makedirs(_BUNDLE_ROOT, exist_ok=True)
     bundle = write_bundle(result, _BUNDLE_ROOT, catalog, schema, profile=profile)
+
+    # Optional: commit the bundle to a linked repo (opt-in via the repo field).
+    if payload.get("repo") and cfg.git_provider:
+        branch = f"pseudo-domo/{lineage_id}"
+        msg = f"Add migrated pipeline for {result['lineage']['name']}"
+        bundle["git"] = gitlink.commit_bundle(
+            cfg.git_provider, payload["repo"], bundle["bundle_dir"], branch, msg)
+
     return {"transpile": {"gate": result["reconciliation"]["gate"],
                           "counts": result["counts"]},
             "bundle": bundle}

@@ -1,0 +1,12 @@
+{
+  "id": "df-plantoee-sql-0002",
+  "name": "Plant OEE Rollup (SQL DataFlow)",
+  "description": "Rolls up daily OEE metrics by plant + line using a SQL DataFlow. Demonstrates the SQL path (captured + flagged for hand-translation).",
+  "databaseType": "SQL",
+  "enabled": true,
+  "inputs": [
+    { "dataSourceId": "ds-plant-oee-101", "dataSourceName": "Plant_OEE_Daily_SQLServer", "executeFlowWhenUpdated": true }
+  ],
+  "sql": "SELECT plant_id, line_id, AVG(availability) AS avg_availability, AVG(performance) AS avg_performance, AVG(quality) AS avg_quality, AVG(availability * performance * quality) AS avg_oee FROM oee_daily WHERE reading_date >= '2025-01-01' GROUP BY plant_id, line_id",
+  "actions": []
+}

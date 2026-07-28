@@ -1,0 +1,30 @@
+{
+  "id": "df-capex-magic-0004",
+  "name": "CapEx Tracker Aggregation (+writeback)",
+  "description": "Aggregates CapEx approval requests captured via a Domo App webform. Transactional writeback / shadow IT.",
+  "databaseType": "MAGIC",
+  "enabled": true,
+  "inputs": [
+    { "dataSourceId": "ds-capex-tracker-webform-202", "dataSourceName": "CapEx_Approval_Tracker_WebForm", "executeFlowWhenUpdated": true }
+  ],
+  "actions": [
+    { "id": "a1", "type": "LoadFromVault", "name": "Load CapEx Requests", "dataSourceId": "ds-capex-tracker-webform-202" },
+
+    { "id": "a2", "type": "Filter", "name": "Current fiscal year", "dependsOn": ["a1"],
+      "filters": [ { "column": "request_date", "operator": "GREATER_THAN", "value": "2025-01-01" } ],
+      "filterCombination": "AND" },
+
+    { "id": "a3", "type": "AddFormula", "name": "Approval aging", "dependsOn": ["a2"],
+      "formulas": [
+        { "outputColumn": "days_pending", "expression": "DATEDIFF(CURRENT_DATE(), `request_date`)" } ] },
+
+    { "id": "a4", "type": "GroupBy", "name": "By cost center + status", "dependsOn": ["a3"],
+      "groupByColumns": ["cost_center", "approval_status"],
+      "aggregations": [ { "outputColumn": "request_count", "function": "COUNT", "column": "request_id" },
+                        { "outputColumn": "total_requested", "function": "SUM", "column": "amount_requested" },
+                        { "outputColumn": "avg_days_pending", "function": "AVG", "column": "days_pending" } ] },
+
+    { "id": "a5", "type": "PublishToVault", "name": "Publish CapEx Summary", "dependsOn": ["a4"],
+      "dataSourceName": "CapEx_Summary", "dataSourceId": "ds-capex-summary-out-302" }
+  ]
+}

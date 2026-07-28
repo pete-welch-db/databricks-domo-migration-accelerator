@@ -1,0 +1,15 @@
+{
+  "id": "ds-capex-summary-out-302",
+  "name": "CapEx_Summary",
+  "rows": 640,
+  "columns": 5,
+  "schema": {
+    "columns": [
+      { "name": "cost_center",      "type": "STRING",  "visible": true },
+      { "name": "approval_status",  "type": "STRING",  "visible": true },
+      { "name": "request_count",    "type": "LONG",    "visible": true },
+      { "name": "total_requested",  "type": "DECIMAL", "visible": true },
+      { "name": "avg_days_pending", "type": "DOUBLE",  "visible": true }
+    ]
+  }
+}

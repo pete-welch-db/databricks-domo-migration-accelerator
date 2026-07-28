@@ -1,0 +1,14 @@
+{
+  "id": "card-supplier-scorecard-004",
+  "title": "Supplier Quality Scorecard",
+  "type": "table",
+  "datasources": [ { "dataSourceId": "ds-supplier-quality-out-301", "dataSourceName": "Supplier_Quality_Scorecard" } ],
+  "pageId": "page-supplier-qa-91",
+  "beastModes": [
+    { "name": "Avg Defect Rate", "expression": "AVG(`defect_rate`)", "format": { "type": "percent", "precision": 2 } },
+    { "name": "Grade A Suppliers", "expression": "COUNT(DISTINCT CASE WHEN `quality_grade` = 'A' THEN `supplier_id` END)", "format": { "type": "number" } },
+    { "name": "Total Parts Spend", "expression": "SUM(`parts_spend`)", "format": { "type": "currency", "currency": "USD" } }
+  ],
+  "filters": [],
+  "series": [ { "column": "quality_grade", "aggregation": "GROUP" } ]
+}

@@ -1,0 +1,40 @@
+{
+  "id": "df-supplier-magic-0003",
+  "name": "Supplier Quality Scorecard Blend",
+  "description": "Blends a hand-maintained supplier scorecard (Excel) with parts orders to rank supplier quality. Citizen-dev/shadow IT.",
+  "databaseType": "MAGIC",
+  "enabled": true,
+  "inputs": [
+    { "dataSourceId": "ds-supplier-scorecard-xls-201", "dataSourceName": "Supplier_Scorecard_Manual_XLS", "executeFlowWhenUpdated": true },
+    { "dataSourceId": "ds-parts-orders-0003", "dataSourceName": "Parts_Orders_WMS", "executeFlowWhenUpdated": false }
+  ],
+  "actions": [
+    { "id": "a1", "type": "LoadFromVault", "name": "Load Supplier Scorecard", "dataSourceId": "ds-supplier-scorecard-xls-201" },
+    { "id": "a2", "type": "LoadFromVault", "name": "Load Parts Orders", "dataSourceId": "ds-parts-orders-0003" },
+
+    { "id": "a3", "type": "Filter", "name": "Active suppliers", "dependsOn": ["a1"],
+      "filters": [ { "column": "supplier_status", "operator": "EQUALS", "value": "ACTIVE" } ],
+      "filterCombination": "AND" },
+
+    { "id": "a4", "type": "GroupBy", "name": "Parts spend + defects by supplier", "dependsOn": ["a2"],
+      "groupByColumns": ["supplier_id"],
+      "aggregations": [ { "outputColumn": "order_lines", "function": "COUNT", "column": "order_id" },
+                        { "outputColumn": "parts_spend", "function": "SUM", "column": "order_total" },
+                        { "outputColumn": "defect_units", "function": "SUM", "column": "defect_qty" } ] },
+
+    { "id": "a5", "type": "MergeJoin", "name": "Join scorecard + parts", "dependsOn": ["a3", "a4"],
+      "joinType": "LEFT", "leftKeys": ["supplier_id"], "rightKeys": ["supplier_id"] },
+
+    { "id": "a6", "type": "AddFormula", "name": "Quality score", "dependsOn": ["a5"],
+      "formulas": [
+        { "outputColumn": "defect_rate", "expression": "COALESCE(`defect_units`,0) / NULLIF(`order_lines`,0)" },
+        { "outputColumn": "quality_grade",
+          "expression": "CASE WHEN COALESCE(`defect_units`,0) / NULLIF(`order_lines`,0) < 0.01 THEN 'A' WHEN COALESCE(`defect_units`,0) / NULLIF(`order_lines`,0) < 0.05 THEN 'B' ELSE 'C' END" } ] },
+
+    { "id": "a7", "type": "SelectValues", "name": "Final columns", "dependsOn": ["a6"],
+      "selectedColumns": ["supplier_id", "supplier_name", "audit_score", "order_lines", "parts_spend", "defect_units", "defect_rate", "quality_grade"] },
+
+    { "id": "a8", "type": "PublishToVault", "name": "Publish Supplier Quality", "dependsOn": ["a7"],
+      "dataSourceName": "Supplier_Quality_Scorecard", "dataSourceId": "ds-supplier-quality-out-301" }
+  ]
+}

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Pseudo-Domo · Migration Console</title>
+  <title>Domo → Databricks Migration Console</title>
   <link rel="stylesheet" href="/static/app.css" />
 </head>
 <body>
@@ -12,7 +12,7 @@
       <span class="logo">◆</span>
       <div>
         <div class="title">Domo → Databricks Migration Console</div>
-        <div class="subtitle">discover · analyze · draft · create</div>
+        <div class="subtitle" id="phase-crumb">configure · connect · discover · assess · plan · build</div>
       </div>
     </div>
     <div class="topbar-right">
@@ -22,121 +22,171 @@
     </div>
   </header>
 
-  <div class="layout">
-    <!-- LEFT: estate browser -->
-    <aside class="sidebar">
-      <div class="sidebar-head">
-        <span>Estate</span>
-        <span id="estate-counts" class="muted small"></span>
-      </div>
-      <div id="estate-list" class="estate-list">
-        <div class="loading">Loading estate…</div>
-      </div>
-      <div class="sidebar-foot">
-        <button id="btn-plan" class="btn ghost full">📋 Migration Plan</button>
-        <button id="btn-feas" class="btn ghost full">🔌 Source Feasibility</button>
-      </div>
-    </aside>
+  <!-- WIZARD RAIL -->
+  <nav id="wizard-rail" class="wizard-rail"></nav>
 
-    <!-- RIGHT: workspace -->
-    <main class="workspace">
-      <div id="empty-state" class="empty">
-        <div class="empty-icon">◇</div>
-        <h2>Select a Magic ETL or dashboard</h2>
-        <p>Pick an item from the estate to analyze its data flow, draft the
-           Databricks pipeline, and create it.</p>
-      </div>
-
-      <div id="detail" class="detail hidden">
-        <div class="detail-head">
-          <div>
-            <div id="detail-title" class="detail-title"></div>
-            <div id="detail-sub" class="muted small"></div>
-          </div>
-          <div id="detail-badges" class="badges"></div>
+  <div class="phase-body">
+    <!-- ============ PHASE: CONFIGURE ============ -->
+    <section class="phase" data-phase="configure">
+      <div class="phase-card">
+        <h1>Configure</h1>
+        <p class="muted">Set your Databricks target and how you'll connect to Domo. Nothing is sent anywhere yet; secrets stay in your environment.</p>
+        <h4>Databricks target</h4>
+        <div class="grid2">
+          <label>Catalog <input id="w-catalog" type="text" /></label>
+          <label>Schema <input id="w-schema" type="text" /></label>
+          <label>CLI profile <input id="w-profile" type="text" placeholder="(empty = generate files only)" /></label>
         </div>
-
-        <!-- stage stepper -->
-        <div class="stepper">
-          <button class="step active" data-stage="analyze"><span>1</span> Analyze</button>
-          <button class="step" data-stage="draft"><span>2</span> Draft</button>
-          <button class="step" data-stage="create"><span>3</span> Create</button>
+        <p class="muted small">Deploy uses the Databricks CLI (OAuth). Empty profile = the Build step writes a deployable bundle without deploying.</p>
+        <h4>Domo source</h4>
+        <div class="grid2">
+          <label>Provider
+            <select id="w-provider">
+              <option value="fixture">fixture — offline sample tenant</option>
+              <option value="live">live — Domo REST (OAuth2 client_credentials)</option>
+            </select>
+          </label>
+          <label>Domo client ID <input id="w-domo-id" type="text" placeholder="(live only)" /></label>
         </div>
-
-        <section id="stage-analyze" class="stage">
-          <div id="graph-wrap" class="graph-wrap"><div class="loading">…</div></div>
-          <div id="analyze-meta" class="meta-row"></div>
-          <div class="stage-actions">
-            <button class="btn primary" data-goto="draft">Draft the code →</button>
-          </div>
-        </section>
-
-        <section id="stage-draft" class="stage hidden">
-          <div id="draft-gate" class="gate"></div>
-          <div class="tabs" id="sql-tabs"></div>
-          <pre id="sql-view" class="code"></pre>
-          <div class="stage-actions">
-            <button class="btn ghost" data-goto="analyze">← Back</button>
-            <button class="btn primary" data-goto="create">Create pipeline →</button>
-          </div>
-        </section>
-
-        <section id="stage-create" class="stage hidden">
-          <div class="create-config">
-            <label>Catalog <input id="c-catalog" type="text" /></label>
-            <label>Schema <input id="c-schema" type="text" /></label>
-            <label>Databricks profile
-              <input id="c-profile" type="text" placeholder="(empty = files only)" />
-            </label>
-          </div>
-          <div id="create-hint" class="hint"></div>
-          <div class="stage-actions">
-            <button class="btn ghost" data-goto="draft">← Back</button>
-            <button id="btn-create" class="btn create">⚡ Create pipeline</button>
-          </div>
-          <div id="create-result" class="create-result hidden"></div>
-        </section>
+        <p class="muted small" id="w-secret-note"></p>
+        <div class="phase-actions">
+          <button class="btn primary" data-next>Save & Connect →</button>
+        </div>
       </div>
-    </main>
+    </section>
+
+    <!-- ============ PHASE: CONNECT ============ -->
+    <section class="phase hidden" data-phase="connect">
+      <div class="phase-card">
+        <h1>Connect</h1>
+        <p class="muted">Establish the connection to your Domo tenant. In <b>fixture</b> mode this connects instantly to the bundled sample estate.</p>
+        <div id="connect-status" class="connect-status">Not connected.</div>
+        <div class="phase-actions">
+          <button class="btn ghost" data-prev>← Back</button>
+          <button id="btn-connect" class="btn primary">🔌 Connect to Domo</button>
+          <button class="btn primary hidden" id="btn-to-discover" data-next>Run Discovery Scan →</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ PHASE: DISCOVER ============ -->
+    <section class="phase hidden" data-phase="discover">
+      <div class="phase-head">
+        <div><h1>Discover</h1><p class="muted">Inventory every Domo asset. Governance is inferred from source, writeback, owner &amp; cadence.</p></div>
+        <button id="btn-scan" class="btn create">🔍 Run Discovery Scan</button>
+      </div>
+      <div id="scan-summary" class="scan-summary hidden"></div>
+      <div id="discover-body" class="hidden">
+        <div class="toolbar">
+          <input id="search" type="text" class="search" placeholder="Search assets by name…" />
+          <div id="type-filters" class="type-filters"></div>
+        </div>
+        <div id="asset-list" class="asset-list"></div>
+      </div>
+      <div class="phase-actions">
+        <button class="btn ghost" data-prev>← Back</button>
+        <button class="btn primary" data-next id="btn-to-assess" disabled>Assess →</button>
+      </div>
+    </section>
+
+    <!-- ============ PHASE: ASSESS ============ -->
+    <section class="phase hidden" data-phase="assess">
+      <div class="phase-head"><div><h1>Assess</h1><p class="muted">Governed vs. shadow IT, complexity, and value — with the signals behind each call.</p></div></div>
+      <div id="assess-body"></div>
+      <div class="phase-actions">
+        <button class="btn ghost" data-prev>← Back</button>
+        <button class="btn primary" data-next>Plan →</button>
+      </div>
+    </section>
+
+    <!-- ============ PHASE: PLAN ============ -->
+    <section class="phase hidden" data-phase="plan">
+      <div class="phase-head"><div><h1>Plan</h1><p class="muted">A value-driven migration wave plan and per-connector ingestion strategy.</p></div></div>
+      <div id="plan-body"></div>
+      <div class="phase-actions">
+        <button class="btn ghost" data-prev>← Back</button>
+        <button class="btn primary" data-next>Build →</button>
+      </div>
+    </section>
+
+    <!-- ============ PHASE: BUILD ============ -->
+    <section class="phase hidden" data-phase="build">
+      <div class="phase-head">
+        <div><h1>Build &amp; Deploy</h1><p class="muted">Pick a migratable asset → analyze its flow → draft the pipeline → create it.</p></div>
+      </div>
+      <div class="build-layout">
+        <aside class="build-sidebar">
+          <div class="sidebar-head"><span>Migratable assets</span></div>
+          <div id="build-list" class="asset-list compact"></div>
+        </aside>
+        <div class="build-main">
+          <div id="build-empty" class="empty"><div class="empty-icon">◇</div><h2>Select an asset to build</h2></div>
+          <div id="build-detail" class="hidden">
+            <div class="detail-head">
+              <div><div id="bd-title" class="detail-title"></div><div id="bd-sub" class="muted small"></div></div>
+              <div id="bd-badges" class="badges"></div>
+            </div>
+            <div class="stepper">
+              <button class="step active" data-stage="analyze"><span>1</span> Analyze</button>
+              <button class="step" data-stage="draft"><span>2</span> Draft</button>
+              <button class="step" data-stage="create"><span>3</span> Create</button>
+            </div>
+            <section id="stage-analyze" class="stage">
+              <div id="graph-wrap" class="graph-wrap"></div>
+              <div id="analyze-meta" class="meta-row"></div>
+              <div class="stage-actions"><button class="btn primary" data-goto="draft">Draft the code →</button></div>
+            </section>
+            <section id="stage-draft" class="stage hidden">
+              <div id="draft-gate" class="gate"></div>
+              <div class="tabs" id="sql-tabs"></div>
+              <pre id="sql-view" class="code"></pre>
+              <div class="stage-actions">
+                <button class="btn ghost" data-goto="analyze">← Back</button>
+                <button class="btn primary" data-goto="create">Create pipeline →</button>
+              </div>
+            </section>
+            <section id="stage-create" class="stage hidden">
+              <div class="create-config">
+                <label>Catalog <input id="c-catalog" type="text" /></label>
+                <label>Schema <input id="c-schema" type="text" /></label>
+                <label>Databricks profile <input id="c-profile" type="text" placeholder="(empty = files only)" /></label>
+                <label id="repo-wrap" class="hidden">Commit to repo
+                  <select id="c-repo"><option value="">— no —</option></select>
+                </label>
+              </div>
+              <div id="create-hint" class="hint"></div>
+              <div class="stage-actions">
+                <button class="btn ghost" data-goto="draft">← Back</button>
+                <button id="btn-create" class="btn create">⚡ Create pipeline</button>
+              </div>
+              <div id="create-result" class="create-result hidden"></div>
+            </section>
+          </div>
+        </div>
+      </div>
+      <div class="phase-actions"><button class="btn ghost" data-prev>← Back to Plan</button></div>
+    </section>
   </div>
 
-  <!-- config modal -->
+  <!-- config modal (reachable anytime) -->
   <div id="config-modal" class="modal hidden">
     <div class="modal-card">
-      <div class="modal-head"><span>Configuration</span>
-        <button id="cfg-close" class="btn ghost">✕</button></div>
+      <div class="modal-head"><span>Configuration</span><button id="cfg-close" class="btn ghost">✕</button></div>
       <div class="modal-body">
         <h4>Databricks target</h4>
         <label>Catalog <input id="cfg-catalog" type="text" /></label>
         <label>Schema <input id="cfg-schema" type="text" /></label>
-        <label>CLI profile <input id="cfg-profile" type="text"
-               placeholder="databricks auth login --profile <name>" /></label>
-        <p class="muted small">Create writes bundle files always; it deploys for
-           real only when a profile is set (OAuth handled by the databricks CLI).</p>
+        <label>CLI profile <input id="cfg-profile" type="text" /></label>
         <h4>Domo source</h4>
-        <label>Provider
-          <select id="cfg-provider">
-            <option value="fixture">fixture (offline / synthetic)</option>
-            <option value="live">live (Domo REST — OAuth client_credentials)</option>
-          </select>
-        </label>
+        <label>Provider <select id="cfg-provider"><option value="fixture">fixture</option><option value="live">live</option></select></label>
         <label>Domo client ID <input id="cfg-domo-id" type="text" /></label>
-        <p class="muted small">Domo uses OAuth2 client_credentials. The client
-           <em>secret</em> is read from <code>DOMO_CLIENT_SECRET</code> in the
-           environment — never stored in config. <span id="cfg-secret"></span></p>
+        <p class="muted small" id="cfg-secret"></p>
+        <h4>Version control (optional)</h4>
+        <label>Git provider <select id="cfg-git-provider"><option value="">none</option><option value="github">GitHub</option><option value="azure_devops">Azure DevOps</option></select></label>
+        <label>Repo (owner/name or org/project/repo) <input id="cfg-git-repo" type="text" placeholder="acme/data-platform" /></label>
+        <p class="muted small">Token read from <code>GIT_TOKEN</code> in the environment; never stored. <span id="cfg-git-token"></span></p>
       </div>
-      <div class="modal-foot">
-        <button id="cfg-save" class="btn primary">Save</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- generic drawer for plan / feasibility -->
-  <div id="drawer" class="drawer hidden">
-    <div class="drawer-card">
-      <div class="modal-head"><span id="drawer-title"></span>
-        <button id="drawer-close" class="btn ghost">✕</button></div>
-      <div id="drawer-body" class="modal-body"></div>
+      <div class="modal-foot"><button id="cfg-save" class="btn primary">Save</button></div>
     </div>
   </div>
 

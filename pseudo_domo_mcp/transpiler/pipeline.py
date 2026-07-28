@@ -142,6 +142,20 @@ def run(lineage_id: str,
             "gold": emit_res.gold_sql,
             "gold_semantic_metrics": bm_res.sql,
         },
+        # Structured shapes for the SDP renderer (language-agnostic).
+        "structured": {
+            "output_dataset": lineage.output_dataset_name,
+            "gold_view_fqn": emit_res.gold_view_fqn,
+            "gold_schema": [{"name": c.name, "domo_type": c.domo_type}
+                            for c in lineage.gold_schema],
+            "inputs": [{"dataset_id": i.dataset_id, "name": i.name}
+                       for i in lineage.inputs],
+            "beast_modes": [{"name": m.name, "alias": m.alias,
+                             "spark_expr": m.spark_expr,
+                             "fully_translated": m.fully_translated}
+                            for m in bm_res.metrics],
+            "card_filter_where": bm_res.where_clause,
+        },
         "repoint_plan": plan,
         "artifacts": {
             "bronze_sql": emit_res.files["bronze"],

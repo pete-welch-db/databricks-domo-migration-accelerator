@@ -37,12 +37,24 @@ class AppConfig:
     domo_provider: str = "fixture"          # "fixture" | "live"
     domo_client_id: str = ""
     domo_api_host: str = "https://api.domo.com"
+    # Generated-pipeline language: SDP in SQL or Python notebooks.
+    pipeline_language: str = "sql"          # "sql" | "python"
+    # Which industry data model(s) to draft-map onto (universal; references the
+    # vendored Databricks Industry Data Models). Comma-separated keys.
+    industry_models: str = "automotive"
+    # Optional version control for generated bundles (token stays in env).
+    git_provider: str = ""                  # "" | "github" | "azure_devops"
+    git_repo: str = ""                      # owner/name  OR  org/project/repo
+    # Persistence backend for scan history / migration status / mappings.
+    store_backend: str = "local"            # "local" | "lakebase"
+    lakebase_instance: str = ""             # Lakebase instance name (if used)
 
     def public(self) -> Dict[str, Any]:
         """Config safe to send to the browser (no secrets are stored here,
-        but we still surface whether the Domo secret is present in env)."""
+        but we still surface whether required tokens are present in env)."""
         d = asdict(self)
         d["domo_secret_present"] = bool(os.environ.get("DOMO_CLIENT_SECRET"))
+        d["git_token_present"] = bool(os.environ.get("GIT_TOKEN"))
         d["deploy_ready"] = bool(self.databricks_profile)
         return d
 

@@ -1,0 +1,13 @@
+{
+  "id": "card-capex-status-005",
+  "title": "CapEx Approval Status",
+  "type": "table",
+  "datasources": [ { "dataSourceId": "ds-capex-summary-out-302", "dataSourceName": "CapEx_Summary" } ],
+  "pageId": "page-finance-capex-93",
+  "beastModes": [
+    { "name": "Total Pending Amount", "expression": "SUM(CASE WHEN `approval_status` = 'PENDING' THEN `total_requested` ELSE 0 END)", "format": { "type": "currency", "currency": "USD" } },
+    { "name": "Avg Approval Days", "expression": "AVG(`avg_days_pending`)", "format": { "type": "number", "precision": 1 } }
+  ],
+  "filters": [],
+  "series": [ { "column": "approval_status", "aggregation": "GROUP" } ]
+}

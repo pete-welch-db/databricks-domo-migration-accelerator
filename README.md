@@ -38,28 +38,44 @@ never change.
 
 ## The workflow
 
+The console is a **wizard**:
+
 ```
- Discover ─► Assess ─►  Analyze  ─►  Draft  ─►  Create
- (census)   (score)    (DAG viz)    (SDP SQL)   (deployable bundle + optional deploy)
+ Configure ─► Connect ─► Discover ─► Assess ─► Plan ─► Build & Deploy
 ```
 
-- **Analyze** renders the Magic ETL DAG as a medallion-layered (bronze → silver
-  → gold) data-flow visual — built from the *same* parser that transpiles it, so
-  what you see is what gets built.
-- **Draft** runs the 6-agent transpiler and returns bronze/silver/gold Spark
-  SQL, a semantic-metrics view that folds the card's Beast Modes, and a
-  **PASS/FAIL reconcile gate** (schema parity + Beast-Mode coverage).
-- **Create** is progressive: it *always* writes a deployable Databricks Asset
-  Bundle (`databricks.yml` + SQL) locally and shows the deploy command; if a
-  Databricks CLI profile is configured, it also runs `databricks bundle deploy`
-  to create the pipeline for real.
+- **Configure / Connect** — set the Databricks target + Domo provider, then
+  connect (fixture mode connects instantly to the bundled sample tenant).
+- **Discover** — a **Discovery Scan** builds a typed, searchable inventory of
+  every asset: **connectors, Magic ETL, SQL DataFlows, DataSets, cards, Beast
+  Modes, pages**. Search by name and filter by type. **Connectors are
+  first-class** and each carries a Databricks ingestion remap plan (Lakeflow
+  Connect / Auto Loader / Apps+Lakebase), because source connections are what
+  must be explicitly re-mapped.
+- **Assess** — governed vs. shadow IT is **inferred** (Domo has no governance
+  field) from source/connector type, writeback, owner shape, and refresh
+  cadence, with a confidence score and the **signals behind each call** shown
+  for confirm/override.
+- **Plan** — a value-driven wave plan + per-connector ingestion strategy.
+- **Build & Deploy** — pick a migratable asset →
+  - **Analyze**: the Magic ETL DAG as a medallion-layered (bronze → silver →
+    gold) SVG, built from the *same* parser that transpiles it.
+  - **Draft**: the 6-agent transpiler returns bronze/silver/gold Spark SQL + a
+    semantic view folding the card's Beast Modes + a **PASS/FAIL reconcile gate**.
+  - **Create** (progressive): *always* writes a deployable Databricks Asset
+    Bundle (`databricks.yml` + SQL) and shows the deploy command; deploys via
+    `databricks bundle deploy` when a profile is set; optionally commits the
+    bundle to a linked **GitHub / Azure DevOps** repo as a PR.
+
+Config is reachable anytime via **⚙ Config**.
 
 ## The MCP tools
 
 | Tool | What it does |
 |---|---|
-| `domo_discover` | Inventory the tenant — datasets/dataflows/cards/pages/sources + governed/shadow split. |
-| `domo_assess` | Classify each object by data **domain** + **source**, score **governance**, **complexity**, **value**. |
+| `domo_discover` | Inventory the tenant — datasets/dataflows/cards/pages/sources + an inferred governed/shadow split. |
+| `domo_inventory` | Typed, searchable asset inventory (connector / magic_etl / sql_dataflow / dataset / card / beast_mode / page); connectors carry a Databricks remap plan. |
+| `domo_assess` | Classify each object by data **domain** + **source**, **infer** governance (with signals + confidence), score **complexity** and **value**. |
 | `list_industry_models` | List vendored industry models (`automotive`, `transport_shipping`) + their domains/tables. |
 | `industry_model_map` | Draft-map a Domo DataSet's columns → a canonical industry-model table (similarity + confidence + unmapped flags). |
 | `lakeflow_feasibility` | Score each source system GREEN/AMBER/RED for **Lakeflow Connect** ingestion + recommended pattern. |
@@ -103,6 +119,7 @@ Set in the web console's **⚙ Config** panel or via env (persisted to
 | `databricks_profile` | Databricks CLI profile (`databricks auth login`). Empty = write bundle files only; set = deploy for real. OAuth is handled by the CLI; no workspace secret is stored. |
 | `domo_provider` | `fixture` (offline) or `live` (Domo REST). |
 | `domo_client_id` + `DOMO_CLIENT_SECRET` (env) | Domo OAuth2 client_credentials. The **secret** is read from the environment, never written to config. |
+| `git_provider` + `git_repo` + `GIT_TOKEN` (env) | Optional: link a **GitHub** or **Azure DevOps** repo so Create commits the generated bundle as a PR. Token read from env, never stored. |
 
 ## Test
 
@@ -125,8 +142,9 @@ pseudo_domo_mcp/
   server.py            FastMCP server (stdio + streamable-http)
   webapp/              FastAPI console + zero-build HTML/CSS/JS frontend
   tools/               thin @mcp.tool wrappers (one per capability)
-  core/                engine: provider select, DDL parse, classify, map,
-                       feasibility, graph (DAG), config, bundle (DAB writer)
+  core/                engine: provider select, DDL parse, classify, governance
+                       inference, map, feasibility, assets (typed inventory),
+                       graph (DAG), config, bundle (DAB writer), gitlink
   providers/           FixtureProvider (offline) | LiveProvider (Domo REST stub)
   transpiler/          6-agent Domo→Databricks transpiler + importable pipeline.run()
 fixtures/

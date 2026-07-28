@@ -6,6 +6,7 @@ from typing import Any, Dict, List
 
 from ..core.domo_client import get_provider
 from ..core import classifier
+from ..core import governance
 
 __all__ = ["domo_assess"]
 
@@ -40,23 +41,30 @@ def domo_assess(scope: str = "dataflows") -> Dict[str, Any]:
     for df in dataflows:
         out_ids = df.get("outputDatasetIds", [])
         beast_modes = max((bm_by_dataset.get(o, 0) for o in out_ids), default=0)
-        # Source system(s) from the input datasets.
+        # Input dataset dicts (for source names AND governance inference).
+        input_ds = [datasets[i] for i in df.get("inputDatasetIds", [])
+                    if i in datasets]
         srcs = []
-        for i in df.get("inputDatasetIds", []):
-            s = datasets.get(i, {}).get("_source_system")
+        for ds in input_ds:
+            s = ds.get("_source_system")
             if s and s not in srcs:
                 srcs.append(s)
         domain = classifier.classify_domain(df.get("name", ""),
                                              " ".join(srcs))
         cx = classifier.complexity_score(df, beast_modes)
         val = classifier.value_tag(domain)
+        # INFER governance from API-observable signals (source type, writeback,
+        # owner shape, cadence) — do NOT trust a pre-tagged field.
+        gov = governance.infer(df, input_ds)
         assessed.append({
             "dataflow_id": df["id"],
             "name": df.get("name"),
             "database_type": df.get("databaseType"),
             "data_domain": domain,
             "source_systems": srcs,
-            "governance": classifier.governance_of(df),
+            "governance": gov["governance"],
+            "governance_confidence": gov["confidence"],
+            "governance_signals": gov["signals"],
             "complexity": cx,
             "value": val,
             "has_triplet": bool(df.get("_triplet_lineage_id")),
@@ -64,14 +72,22 @@ def domo_assess(scope: str = "dataflows") -> Dict[str, Any]:
         })
 
     if scope == "cards":
+        # Card governance is inherited from the dataflow that produces the
+        # dataset it binds to (via the assessed list above).
+        gov_by_output = {}
+        for df, a in zip(dataflows, assessed):
+            for o in df.get("outputDatasetIds", []):
+                gov_by_output[o] = a["governance"]
         card_out = []
         for c in cards:
             domain = classifier.classify_domain(
                 c.get("title", ""), c.get("_value_domain", ""))
+            gov = next((gov_by_output.get(o) for o in c.get("boundDatasetIds", [])
+                        if o in gov_by_output), "uncertain")
             card_out.append({
                 "card_id": c["id"], "title": c.get("title"),
                 "data_domain": domain,
-                "governance": classifier.governance_of(c),
+                "governance": gov,
                 "beast_modes": c.get("beastModeCount", 0),
                 "value": classifier.value_tag(domain),
                 "note": ("Beast Modes are the #1 gotcha — folded into the "
@@ -81,12 +97,12 @@ def domo_assess(scope: str = "dataflows") -> Dict[str, Any]:
 
     if scope == "summary":
         by_domain: Dict[str, int] = {}
-        by_governance = {"governed": 0, "shadow": 0, "other": 0}
+        by_governance = {"governed": 0, "shadow": 0, "uncertain": 0}
         high_value_low_complexity = []
         for a in assessed:
             by_domain[a["data_domain"]] = by_domain.get(a["data_domain"], 0) + 1
             g = a["governance"]
-            by_governance[g if g in by_governance else "other"] += 1
+            by_governance[g if g in by_governance else "uncertain"] += 1
             if a["value"]["band"] == "HIGH" and a["complexity"]["band"] != "HIGH":
                 high_value_low_complexity.append(a["name"])
         return {

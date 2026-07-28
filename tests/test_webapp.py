@@ -68,3 +68,23 @@ def test_create_writes_bundle_no_deploy():
     assert b["catalog"] == "acme"
     assert any(f.endswith("gold.sql") for f in b["sql_files"])
     assert "bundle deploy" in b["deploy_command"]
+
+
+def test_inventory_typed_and_searchable():
+    inv = client.get("/api/inventory").json()
+    ct = inv["counts_by_type"]
+    assert ct["connector"] >= 1 and ct["magic_etl"] >= 1 and ct["beast_mode"] >= 1
+    # connectors carry a Databricks remap plan
+    conns = [a for a in inv["assets"] if a["asset_type"] == "connector"]
+    assert all("databricks_remap" in c for c in conns)
+    # filter by type
+    only_ds = client.get("/api/inventory?asset_type=dataset").json()
+    assert all(a["asset_type"] == "dataset" for a in only_ds["assets"])
+    # search by name
+    war = client.get("/api/inventory?search=warranty").json()
+    assert war["matched"] >= 1 and all("warranty" in a["name"].lower() for a in war["assets"])
+
+
+def test_config_exposes_git_fields():
+    c = client.get("/api/config").json()
+    assert "git_provider" in c and "git_token_present" in c

@@ -1,0 +1,33 @@
+{
+  "id": "df-logistics-magic-0005",
+  "name": "Inbound Lane Cost Blend",
+  "description": "Blends inbound freight lane costs (Google Sheet) with parts orders to rank lanes by cost. Shadow IT.",
+  "databaseType": "MAGIC",
+  "enabled": true,
+  "inputs": [
+    { "dataSourceId": "ds-logistics-lanes-sheets-203", "dataSourceName": "Inbound_Logistics_Lanes_GSheet", "executeFlowWhenUpdated": true },
+    { "dataSourceId": "ds-parts-orders-0003", "dataSourceName": "Parts_Orders_WMS", "executeFlowWhenUpdated": false }
+  ],
+  "actions": [
+    { "id": "a1", "type": "LoadFromVault", "name": "Load Lane Costs", "dataSourceId": "ds-logistics-lanes-sheets-203" },
+    { "id": "a2", "type": "LoadFromVault", "name": "Load Parts Orders", "dataSourceId": "ds-parts-orders-0003" },
+
+    { "id": "a3", "type": "GroupBy", "name": "Volume by lane", "dependsOn": ["a2"],
+      "groupByColumns": ["lane_id"],
+      "aggregations": [ { "outputColumn": "shipment_count", "function": "COUNT", "column": "order_id" },
+                        { "outputColumn": "total_weight_kg", "function": "SUM", "column": "weight_kg" } ] },
+
+    { "id": "a4", "type": "MergeJoin", "name": "Join lane costs + volume", "dependsOn": ["a1", "a3"],
+      "joinType": "INNER", "leftKeys": ["lane_id"], "rightKeys": ["lane_id"] },
+
+    { "id": "a5", "type": "AddFormula", "name": "Cost per kg", "dependsOn": ["a4"],
+      "formulas": [
+        { "outputColumn": "cost_per_kg", "expression": "COALESCE(`lane_cost`,0) / NULLIF(`total_weight_kg`,0)" } ] },
+
+    { "id": "a6", "type": "SelectValues", "name": "Final columns", "dependsOn": ["a5"],
+      "selectedColumns": ["lane_id", "origin", "destination", "carrier", "shipment_count", "total_weight_kg", "lane_cost", "cost_per_kg"] },
+
+    { "id": "a7", "type": "PublishToVault", "name": "Publish Lane Cost", "dependsOn": ["a6"],
+      "dataSourceName": "Inbound_Lane_Cost", "dataSourceId": "ds-lane-cost-out-303" }
+  ]
+}
