@@ -96,6 +96,8 @@ def test_migration_plan_end_to_end():
     p = plan.migration_plan()
     assert p["recommended_pilot"] is not None
     assert len(p["waves"]) == 3
+    # Wave 1 is always populated when governed assets exist (rank-into-thirds).
+    assert len(p["waves"][0]["items"]) >= 1
     # wave 3 is the shadow-IT re-platform bucket
     assert "Lakebase" in p["waves"][2]["theme"]
     assert "source_feasibility" in p

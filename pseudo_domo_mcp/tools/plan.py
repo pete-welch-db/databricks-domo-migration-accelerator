@@ -74,23 +74,32 @@ def migration_plan() -> Dict[str, Any]:
 
 
 def _bucket_waves(ranked: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """3 waves: (1) high-value quick wins, (2) governed remainder, (3) shadow IT."""
-    w1, w2, w3 = [], [], []
-    for a in ranked:
-        entry = {
+    """Rank-into-thirds so waves are always populated and priority-ordered.
+
+    `ranked` is pre-sorted best-first (value desc, then complexity asc). We keep
+    shadow IT as its own wave (it's a different path — an Apps + Lakebase
+    re-platform, not a pipeline transpile), then split the GOVERNED assets by
+    rank: the higher-priority half seeds Wave 1 (start here), the rest Wave 2.
+    """
+    def entry(a):
+        return {
             "name": a["name"], "data_domain": a["data_domain"],
             "value": a["value"], "complexity_band": a["complexity"]["band"],
             "governance": a["governance"], "has_triplet": a["has_triplet"],
         }
-        if a["governance"] == "shadow":
-            w3.append(entry)
-        elif a["value"]["band"] == "HIGH" and a["complexity"]["band"] != "HIGH":
-            w1.append(entry)
-        else:
-            w2.append(entry)
+
+    governed = [a for a in ranked if a["governance"] != "shadow"]
+    shadow = [a for a in ranked if a["governance"] == "shadow"]
+
+    # Split governed in half (ceil into wave 1 so a lone asset still leads).
+    cut = (len(governed) + 1) // 2
+    w1 = [entry(a) for a in governed[:cut]]
+    w2 = [entry(a) for a in governed[cut:]]
+    w3 = [entry(a) for a in shadow]
+
     return [
-        {"wave": 1, "theme": "High-value quick wins (governed, high value, manageable complexity)", "items": w1},
-        {"wave": 2, "theme": "Governed remainder (SQL DataFlows, higher complexity)", "items": w2},
+        {"wave": 1, "theme": "Start here — highest-priority governed pipelines (best value-to-effort)", "items": w1},
+        {"wave": 2, "theme": "Governed remainder — larger or more complex pipelines", "items": w2},
         {"wave": 3, "theme": "Shadow IT — Databricks Apps + Lakebase re-platform", "items": w3},
     ]
 
@@ -103,8 +112,9 @@ def _pilot_view(a):
         "value": a["value"], "complexity": a["complexity"],
         "has_triplet": a["has_triplet"],
         "triplet_lineage_id": a["triplet_lineage_id"],
-        "why": ("Highest business value at manageable complexity, with a full "
-                "triplet available — prove the mechanism end-to-end here first."),
+        "why": ("Top of the priority ranking (business value vs. migration "
+                "effort) with a full lineage available — prove the mechanism "
+                "end-to-end here first."),
     }
 
 
