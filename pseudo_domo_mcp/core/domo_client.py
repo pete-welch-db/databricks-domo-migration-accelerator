@@ -25,6 +25,10 @@ def get_provider() -> DomoProvider:
         return LiveProvider(
             client_id=os.environ["DOMO_CLIENT_ID"],
             client_secret=os.environ["DOMO_CLIENT_SECRET"],
+            # Instance plane (dataflow internals + Beast Mode export) — optional
+            # until you need the transform triplet; census works without it.
+            instance=os.environ.get("DOMO_INSTANCE", ""),
+            developer_token=os.environ.get("DOMO_DEVELOPER_TOKEN", ""),
         )
     fixtures = os.environ.get("PSEUDO_DOMO_FIXTURES")
     return FixtureProvider(fixtures) if fixtures else FixtureProvider()

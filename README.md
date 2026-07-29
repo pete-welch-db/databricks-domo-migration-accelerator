@@ -145,10 +145,22 @@ python -m pytest -q      # end-to-end: discover→assess→map→feasibility→t
 ## Going live
 
 `LiveProvider` (`pseudo_domo_mcp/providers/live_provider.py`) documents the exact
-Domo REST endpoints to fill in. Note Domo's **public** API exposes DataSet schema
-+ card/page metadata, but **Magic ETL internals and Beast Mode expressions
-require the dataflow/card export (private API)** — the transpile path needs that
-export. Set `domo_provider=live` + credentials, and implement the stubbed reads.
+Domo REST endpoint map (verified against developer.domo.com). Domo has **two API
+planes**, and a full migration inventory needs both:
+
+- **Public API** (`https://api.domo.com`, OAuth2 client_credentials; scopes
+  `data user dashboard audit …`) — the census + schemas: `GET /v1/datasets`,
+  `/v1/datasets/{id}` (schema.columns), `/v1/pages`, `/v1/cards` (metadata
+  only), `/v1/streams`, `/v1/users`, `/v1/groups`.
+- **Instance API** (`https://{instance}.domo.com`, `X-DOMO-Developer-Token`) —
+  the transform internals: `GET /api/dataprocessing/v1/dataflows[/{id}]` (Magic
+  ETL DAG + SQL body) and `/api/content/v1/cards` (Beast Mode expressions).
+
+So the migration triplet = instance dataflow internals + public dataset schema +
+instance card export. The public API alone gives the census + schemas but not the
+transform logic or Beast Modes. To go live: set `domo_provider=live` + OAuth
+credentials (and `DOMO_INSTANCE` + `DOMO_DEVELOPER_TOKEN` for the transform
+triplet), then implement the stubbed reads.
 
 ## Layout
 

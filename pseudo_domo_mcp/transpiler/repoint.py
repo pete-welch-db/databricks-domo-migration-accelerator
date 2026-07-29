@@ -81,7 +81,14 @@ class RepointAgent:
         return plan
 
     def _api_call_shapes(self, ds_id: str, gold_view: str) -> List[Dict[str, Any]]:
-        """Documented Domo API request shapes for the source swap (dry run)."""
+        """Illustrative Domo API request shapes for the source swap (DRY RUN).
+
+        NOTE: connection/DataSource management lives on Domo's INSTANCE plane
+        (https://{instance}.domo.com/api/..., X-DOMO-Developer-Token), not the
+        public api.domo.com OAuth API, and the exact connector-swap contract is
+        not publicly documented. These shapes are directional — validate against
+        the tenant's actual endpoints before executing.
+        """
         return [
             {
                 "step": "1. Register Databricks connection",
