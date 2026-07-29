@@ -50,3 +50,29 @@ class DomoProvider(ABC):
             if src not in seen:
                 seen.append(src)
         return seen
+
+    def triplet_dir(self, lineage_id: str) -> Optional[str]:
+        """A directory holding a lineage's triplet in the IngestAgent's naming
+        convention (dataflow_<id>_*.json / dataset_<id>_schema.json /
+        card_<id>_beastmodes.json), which the transpiler reads.
+
+        FixtureProvider overrides this to point at its on-disk lineages dir.
+        Any other provider (e.g. LiveProvider) falls back to fetching the
+        triplet via `get_lineage_triplet` and materializing it to a temp dir —
+        so the transpiler works uniformly regardless of source. Returns None
+        when no triplet is available (e.g. instance token not configured)."""
+        import json
+        import os
+        import tempfile
+        trip = self.get_lineage_triplet(lineage_id)
+        if not trip:
+            return None
+        d = tempfile.mkdtemp(prefix=f"triplet_{lineage_id}_")
+        df = trip["dataflow"]
+        is_sql = str(df.get("databaseType", "MAGIC")).upper() == "SQL"
+        df_name = f"dataflow_{lineage_id}_{'sql' if is_sql else 'magic_etl'}.json"
+        _write = lambda fn, obj: json.dump(obj, open(os.path.join(d, fn), "w"))
+        _write(df_name, df)
+        _write(f"dataset_{lineage_id}_schema.json", trip["schema"])
+        _write(f"card_{lineage_id}_beastmodes.json", trip.get("card") or {})
+        return d

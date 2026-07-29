@@ -52,6 +52,17 @@ class FixtureProvider(DomoProvider):
         """Directory the transpiler's IngestAgent reads triplets from."""
         return self.lineages_dir
 
+    def triplet_dir(self, lineage_id: str):
+        """Fixtures already live on disk in the IngestAgent's naming
+        convention — return that dir directly (skip the temp materialization
+        the base class does for API-backed providers). Returns None if the
+        lineage has no triplet."""
+        import os
+        if os.path.exists(os.path.join(
+                self.lineages_dir, f"dataset_{lineage_id}_schema.json")):
+            return self.lineages_dir
+        return None
+
     # -- io ---------------------------------------------------------------- #
     def _read(self, filename: str) -> Dict[str, Any]:
         with open(os.path.join(self.tenant_dir, filename), "r", encoding="utf-8") as fh:

@@ -141,3 +141,24 @@ def test_sdp_renders_real_lakeflow_sql_and_python():
     py = sdp.render(r, "python")
     assert "@dlt.table" in py and "expect_all_or_drop" in py
     assert "METRIC VIEW" in py                   # recommends metric view
+
+
+def test_live_provider_normalizes_and_degrades():
+    """LiveProvider maps the two Domo planes to the internal shape and skips
+    the transform triplet when the instance token isn't configured."""
+    from pseudo_domo_mcp.providers.live_provider import LiveProvider
+    p = LiveProvider(client_id="x", client_secret="y")
+    # no instance token -> instance-plane reads are empty / triplet is None
+    assert p.list_dataflows() == []
+    assert p.get_lineage_triplet("anything") is None
+    assert p.triplet_dir("anything") is None
+    # public-plane reads are normalized from mocked raw Domo responses
+    p._bearer = lambda: "tok"
+    p._public_get = lambda path: (
+        [{"id": "d1", "name": "DS", "rows": 5, "columns": 2,
+          "owner": {"id": "u", "name": "T"}}] if "/v1/datasets" in path
+        else [] if "/v1/streams" in path else [])
+    p._paginate = lambda path, limit=50: p._public_get(path)
+    ds = p.list_datasets()
+    assert ds[0]["id"] == "d1" and ds[0]["_source_system"] == "Domo (derived)"
+    assert set(ds[0]) >= {"name", "rows", "columns", "owner", "_source_system"}

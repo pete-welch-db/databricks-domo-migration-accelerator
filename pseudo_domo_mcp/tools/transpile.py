@@ -43,12 +43,13 @@ def transpile_lineage(lineage_id: str,
     domain = classifier.classify_domain(df["name"]) if df else "unknown"
     val = classifier.value_tag(domain)
 
-    # The transpiler's IngestAgent reads triplets from the lineages dir.
-    fixtures_dir = getattr(p, "lineages_dir_path", lambda: None)()
+    # Materialize the triplet (from fixtures OR the live Domo instance API) into
+    # the layout the transpiler's IngestAgent reads.
+    fixtures_dir = p.triplet_dir(lineage_id)
     if not fixtures_dir or not os.path.isdir(fixtures_dir):
-        return {"error": "Active provider exposes no lineage triplet directory. "
-                         "Triplet transpile needs the full Magic ETL + schema + "
-                         "card export (fixtures today; export/private API live)."}
+        return {"error": "No lineage triplet available. Transpile needs the full "
+                         "Magic ETL + schema + card export — fixtures, or the "
+                         "Domo instance API (DOMO_INSTANCE + DOMO_DEVELOPER_TOKEN)."}
 
     base = out_dir or tempfile.mkdtemp(prefix=f"transpile_{lineage_id}_")
     out_json = os.path.join(base, "out")

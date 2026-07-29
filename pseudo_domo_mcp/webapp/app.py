@@ -89,17 +89,14 @@ def history() -> Dict[str, Any]:
 def analyze(lineage_id: str) -> Dict[str, Any]:
     """Analyze/preview: the Magic ETL DAG as a medallion-layered graph."""
     p = get_provider()
-    fixtures = getattr(p, "lineages_dir_path", lambda: None)()
-    if not fixtures:
-        return JSONResponse({"error": "no lineage source"}, status_code=400)
-    trip = p.get_lineage_triplet(lineage_id)
-    if trip is None:
+    tdir = p.triplet_dir(lineage_id)
+    if tdir is None:
         return JSONResponse(
-            {"error": f"No full triplet for '{lineage_id}'. Discovery-only "
-                      "object — Magic ETL internals need the Domo export/private "
-                      "API (public API exposes only DataSet + card metadata)."},
+            {"error": f"No full triplet for '{lineage_id}'. Magic ETL internals "
+                      "come from the Domo instance API (dataprocessing); set "
+                      "DOMO_INSTANCE + DOMO_DEVELOPER_TOKEN, or use fixtures."},
             status_code=404)
-    return build_graph(lineage_id, fixtures)
+    return build_graph(lineage_id, tdir)
 
 
 @app.get("/api/draft/{lineage_id}")
@@ -107,9 +104,13 @@ def draft(lineage_id: str, language: str = "") -> Dict[str, Any]:
     """Draft: run the transpiler, return real SDP (Lakeflow Declarative Pipeline)
     code in the chosen language + the reconcile gate (no deploy)."""
     p = get_provider()
-    fixtures = getattr(p, "lineages_dir_path", lambda: None)()
+    tdir = p.triplet_dir(lineage_id)
+    if tdir is None:
+        return JSONResponse({"error": f"No triplet for '{lineage_id}' — Magic "
+                             "ETL internals need the Domo instance API."},
+                            status_code=404)
     tmp = tempfile.mkdtemp(prefix=f"draft_{lineage_id}_")
-    result = pipeline.run(lineage_id, fixtures,
+    result = pipeline.run(lineage_id, tdir,
                           os.path.join(tmp, "out"), os.path.join(tmp, "sql"))
     lang = language or cfgmod.load_config().pipeline_language
     saved_map = _saved_mapping(lineage_id)
@@ -139,9 +140,12 @@ def create(lineage_id: str, payload: Optional[Dict[str, Any]] = Body(default=Non
     language = payload.get("language") or cfg.pipeline_language
 
     p = get_provider()
-    fixtures = getattr(p, "lineages_dir_path", lambda: None)()
+    tdir = p.triplet_dir(lineage_id)
+    if tdir is None:
+        return {"error": f"No triplet for '{lineage_id}' — Magic ETL internals "
+                "need the Domo instance API."}
     tmp = tempfile.mkdtemp(prefix=f"create_{lineage_id}_")
-    result = pipeline.run(lineage_id, fixtures,
+    result = pipeline.run(lineage_id, tdir,
                           os.path.join(tmp, "out"), os.path.join(tmp, "sql"))
     if result["reconciliation"]["gate"] != "PASS":
         return {"error": "Reconcile gate did not PASS — refusing to create.",

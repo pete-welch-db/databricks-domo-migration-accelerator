@@ -43,7 +43,7 @@ def test_analyze_missing_triplet_is_honest():
     # a discovery-only object (no triplet) should 404 with an explanation
     r = client.get("/api/analyze/does-not-exist")
     assert r.status_code == 404
-    assert "export" in r.json()["error"].lower()
+    assert "instance" in r.json()["error"].lower()
 
 
 def test_draft_gate_passes():
