@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Domo → Databricks Migration Console</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ctext y='14' font-size='14'%3E%E2%97%86%3C/text%3E%3C/svg%3E" />
   <link rel="stylesheet" href="/static/app.css" />
 </head>
 <body>
@@ -12,7 +13,7 @@
       <span class="logo">◆</span>
       <div>
         <div class="title">Domo → Databricks Migration Console</div>
-        <div class="subtitle" id="phase-crumb">configure · connect · discover · assess · plan · build</div>
+        <div class="subtitle" id="phase-crumb">configure · connect · discover · model · plan · build</div>
       </div>
     </div>
     <div class="topbar-right">
@@ -61,12 +62,11 @@
     <section class="phase hidden" data-phase="connect">
       <div class="phase-card">
         <h1>Connect</h1>
-        <p class="muted">Establish the connection to your Domo tenant. In <b>fixture</b> mode this connects instantly to the bundled sample estate.</p>
+        <p class="muted">Connect to your Domo tenant and run the discovery scan in one step. In <b>fixture</b> mode this uses the bundled sample estate.</p>
         <div id="connect-status" class="connect-status">Not connected.</div>
         <div class="phase-actions">
           <button class="btn ghost" data-prev>← Back</button>
-          <button id="btn-connect" class="btn primary">🔌 Connect to Domo</button>
-          <button class="btn primary hidden" id="btn-to-discover" data-next>Run Discovery Scan →</button>
+          <button id="btn-connect" class="btn primary">🔌 Connect &amp; Scan</button>
         </div>
       </div>
     </section>
@@ -74,8 +74,8 @@
     <!-- ============ PHASE: DISCOVER ============ -->
     <section class="phase hidden" data-phase="discover">
       <div class="phase-head">
-        <div><h1>Discover</h1><p class="muted">Inventory every Domo asset. Governance is inferred from source, writeback, owner &amp; cadence.</p></div>
-        <button id="btn-scan" class="btn create">🔍 Run Discovery Scan</button>
+        <div><h1>Discover</h1><p class="muted">Every Domo asset, inventoried. Governance is inferred from source, writeback, owner &amp; cadence — expand any asset for the “why”.</p></div>
+        <button id="btn-scan" class="btn ghost">↻ Re-scan</button>
       </div>
       <div id="scan-summary" class="scan-summary hidden"></div>
       <div id="discover-body" class="hidden">
@@ -87,17 +87,7 @@
       </div>
       <div class="phase-actions">
         <button class="btn ghost" data-prev>← Back</button>
-        <button class="btn primary" data-next id="btn-to-assess" disabled>Assess →</button>
-      </div>
-    </section>
-
-    <!-- ============ PHASE: ASSESS ============ -->
-    <section class="phase hidden" data-phase="assess">
-      <div class="phase-head"><div><h1>Assess</h1><p class="muted">Governed vs. shadow IT, complexity, and value — with the signals behind each call.</p></div></div>
-      <div id="assess-body"></div>
-      <div class="phase-actions">
-        <button class="btn ghost" data-prev>← Back</button>
-        <button class="btn primary" data-next>Plan →</button>
+        <button class="btn primary" data-next id="btn-to-model" disabled>Model →</button>
       </div>
     </section>
 

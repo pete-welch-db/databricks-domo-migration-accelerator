@@ -3,9 +3,9 @@ const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const api = async (path, opts) => (await fetch(path, opts)).json();
 
-const PHASES = ["configure", "connect", "discover", "assess", "model", "plan", "build"];
+const PHASES = ["configure", "connect", "discover", "model", "plan", "build"];
 const PHASE_LABEL = { configure: "Configure", connect: "Connect", discover: "Discover",
-  assess: "Assess", model: "Model", plan: "Plan", build: "Build & Deploy" };
+  model: "Model", plan: "Plan", build: "Build & Deploy" };
 
 // Plain-language glossary — surfaced as hover tooltips throughout the UI.
 const TIP = {
@@ -54,7 +54,6 @@ function goPhase(p) {
   $$(".phase").forEach(s => s.classList.toggle("hidden", s.dataset.phase !== p));
   renderRail();
   if (p === "discover") onEnterDiscover();
-  if (p === "assess") loadAssess();
   if (p === "model") loadModel();
   if (p === "plan") loadPlan();
   if (p === "build") loadBuild();
@@ -96,34 +95,41 @@ async function doConnect() {
   const s = $("#connect-status");
   s.className = "connect-status working";
   s.textContent = "Connecting…";
-  // fixture mode: a discovery summary call IS the connection test.
+  const btn = $("#btn-connect");
+  btn.disabled = true; btn.textContent = "Connecting…";
   try {
+    // fixture mode: a discovery summary call IS the connection test.
     const sum = await api("/api/estate");
     state.connected = true;
     const prov = state.config.domo_provider;
     s.className = "connect-status ok";
-    s.innerHTML = `Connected (<b>${prov}</b>). Tenant reachable — `
-      + `${sum.summary.counts.dataflows} flows, ${sum.summary.counts.datasets} datasets, `
-      + `${sum.summary.counts.cards} cards ready to scan.`;
-    $("#btn-connect").classList.add("hidden");
-    $("#btn-to-discover").classList.remove("hidden");
+    s.innerHTML = `Connected (<b>${prov}</b>) — ${sum.summary.counts.dataflows} flows, `
+      + `${sum.summary.counts.datasets} datasets, ${sum.summary.counts.cards} cards. `
+      + `Running discovery scan…`;
+    btn.textContent = "Scanning…";
+    // One click: connect → scan → land on Discover with results loaded.
+    await runScan();
+    goPhase("discover");
   } catch (e) {
     s.className = "connect-status err";
     s.textContent = "Connection failed: " + e;
+  } finally {
+    btn.disabled = false; btn.textContent = "🔌 Connect & Scan";
   }
 }
 
 // ------------------------------------------------------------ discover -----
 function onEnterDiscover() {
-  if (!state.inventory) return; // wait for scan
+  // Scan already ran during Connect; if somehow not, run it now.
+  if (!state.inventory) runScan();
 }
 async function runScan() {
   const btn = $("#btn-scan");
-  btn.disabled = true; btn.textContent = "Scanning…";
+  if (btn) { btn.disabled = true; btn.textContent = "Scanning…"; }
   const inv = await api("/api/inventory");
   state.inventory = inv;
   state.assets = inv.assets;
-  btn.disabled = false; btn.textContent = "↻ Re-scan";
+  if (btn) { btn.disabled = false; btn.textContent = "↻ Re-scan"; }
 
   // summary tiles
   const sum = $("#scan-summary");
@@ -132,7 +138,7 @@ async function runScan() {
     const n = inv.counts_by_type[t.key] || 0;
     return `<button class="tile" data-type="${t.key}" title="${t.hint}">
       <div class="tile-n">${n}</div><div class="tile-l">${t.label}</div>
-      ${t.migratable ? '<div class="tile-tag">migratable</div>' : ''}</button>`;
+      ${t.build ? '<div class="tile-tag">build</div>' : ''}</button>`;
   }).join("");
   $$("#scan-summary .tile").forEach(b => b.onclick = () => setFilter(b.dataset.type));
 
@@ -143,7 +149,7 @@ async function runScan() {
   $$("#type-filters .tfilter").forEach(b => b.onclick = () => setFilter(b.dataset.type));
 
   $("#discover-body").classList.remove("hidden");
-  $("#btn-to-assess").disabled = false;
+  const nextBtn = $("#btn-to-model"); if (nextBtn) nextBtn.disabled = false;
   renderAssets();
 }
 function setFilter(type) {
@@ -185,33 +191,6 @@ function assetCard(a) {
 const TYPE_LABEL = { connector: "Connector", magic_etl: "Magic ETL", sql_dataflow: "SQL DataFlow",
   dataset: "DataSet", card: "Card", beast_mode: "Beast Mode", page: "Page" };
 const typeLabel = t => TYPE_LABEL[t] || t;
-
-// ------------------------------------------------------------ assess -------
-async function loadAssess() {
-  const body = $("#assess-body");
-  body.innerHTML = `<div class="loading">Assessing…</div>`;
-  const data = await api("/api/estate");
-  const rows = data.dataflows.map(a => {
-    const sig = (a.governance_signals || []).map(x => `<li>${esc(x)}</li>`).join("");
-    return `<tr>
-      <td>${esc(a.name)}</td>
-      <td><span class="chip ${a.database_type === "SQL" ? "sql" : "magic"}" ${tip(a.database_type === "SQL" ? "sql_dataflow" : "magic_etl")}>${a.database_type}</span></td>
-      <td>${a.data_domain}</td>
-      <td><span class="chip gov-${a.governance}">${a.governance} ${Math.round(a.governance_confidence * 100)}%</span></td>
-      <td><span class="chip v-${a.value.band}">${a.value.value_per_year}</span></td>
-      <td><span class="chip cx-${a.complexity.band}" ${tip("complexity", "tip-left")}>${a.complexity.score}</span></td>
-    </tr>
-    <tr class="sigrow"><td colspan="6"><details><summary>why this governance call?</summary>
-      ${a.governance_rationale ? `<p class="ai-note">✨ ${esc(a.governance_rationale)}</p>` : ""}
-      <ul>${sig}</ul></details></td></tr>`;
-  }).join("");
-  body.innerHTML = `<table class="assess-table">
-    <tr><th>Asset</th><th ${tip("type")}>Type</th><th ${tip("domain")}>Domain</th>
-      <th ${tip("governance")}>Governance (inferred)</th><th ${tip("value")}>Value</th>
-      <th ${tip("complexity", "tip-left")}>Complexity</th></tr>
-    ${rows}</table>
-    <p class="muted small">Governance is inferred — expand a row to see the signals. Confirm or override before you rely on it.</p>`;
-}
 
 // ------------------------------------------------------------ model -------
 async function loadModel() {
@@ -272,21 +251,54 @@ async function loadPlan() {
 
 // ------------------------------------------------------------ build --------
 function loadBuild() {
+  state.buildAll = (state.assets || []).filter(a => a.build);
+  state.buildFilters = state.buildFilters || { search: "", type: "", triplet: "" };
+  renderBuildList();
+}
+function renderBuildList() {
   const list = $("#build-list");
-  const migratable = (state.assets || []).filter(a => a.build);
-  if (!migratable.length) { list.innerHTML = `<div class="loading">Run a Discovery Scan first.</div>`; return; }
-  list.innerHTML = migratable.map(a =>
+  const all = state.buildAll || [];
+  if (!all.length) { list.innerHTML = `<div class="loading">Run a Discovery Scan first.</div>`; return; }
+  const f = state.buildFilters, s = f.search.toLowerCase();
+  let items = all;
+  if (f.type) items = items.filter(a => a.asset_type === f.type);
+  if (f.triplet === "yes") items = items.filter(a => a.has_triplet);
+  if (f.triplet === "no") items = items.filter(a => !a.has_triplet);
+  if (s) items = items.filter(a => (a.name || "").toLowerCase().includes(s));
+
+  const magic = all.filter(a => a.asset_type === "magic_etl").length;
+  const sql = all.filter(a => a.asset_type === "sql_dataflow").length;
+  const cards = items.map(a =>
     `<div class="asset-card mini ${a.has_triplet ? "" : "disabled"}" data-lid="${a.triplet_lineage_id || ""}">
       <div class="ac-head"><span class="atype at-${a.asset_type}">${typeLabel(a.asset_type)}</span>
         <span class="ac-name">${esc(a.name)}</span></div>
       <div class="muted small">${a.has_triplet ? "full lineage available" : "metadata only — needs export"}</div>
-    </div>`).join("");
-  $$("#build-list .asset-card").forEach(el => el.onclick = () => {
+    </div>`).join("") || `<div class="loading">No assets match.</div>`;
+
+  list.innerHTML = `
+    <div class="build-toolbar">
+      <input id="build-search" type="text" class="search" placeholder="Search ${all.length} assets…" value="${esc(f.search)}" />
+      <div class="build-filters">
+        <button class="tfilter ${f.type === "" ? "active" : ""}" data-bt="">All ${all.length}</button>
+        <button class="tfilter ${f.type === "magic_etl" ? "active" : ""}" data-bt="magic_etl">Magic ETL ${magic}</button>
+        <button class="tfilter ${f.type === "sql_dataflow" ? "active" : ""}" data-bt="sql_dataflow">SQL ${sql}</button>
+        <button class="tfilter ${f.triplet === "yes" ? "active" : ""}" data-btrip="yes">Ready</button>
+      </div>
+      <div class="muted small build-count">${items.length} shown</div>
+    </div>
+    <div id="build-items" class="asset-list compact">${cards}</div>`;
+
+  $("#build-search").oninput = e => { state.buildFilters.search = e.target.value; renderBuildList(); };
+  $$("#build-list [data-bt]").forEach(b => b.onclick = () => {
+    state.buildFilters.type = b.dataset.bt; renderBuildList(); });
+  const rb = $('#build-list [data-btrip]');
+  if (rb) rb.onclick = () => { state.buildFilters.triplet = f.triplet === "yes" ? "" : "yes"; renderBuildList(); };
+  $$("#build-items .asset-card").forEach(el => el.onclick = () => {
     const lid = el.dataset.lid;
     if (!lid) { alert("Metadata-only object: full Magic ETL export (private API) needed to build."); return; }
-    $$("#build-list .asset-card").forEach(x => x.classList.remove("active"));
+    $$("#build-items .asset-card").forEach(x => x.classList.remove("active"));
     el.classList.add("active");
-    openBuild(migratable.find(m => m.triplet_lineage_id === lid));
+    openBuild(state.buildAll.find(m => m.triplet_lineage_id === lid));
   });
 }
 function openBuild(a) {
