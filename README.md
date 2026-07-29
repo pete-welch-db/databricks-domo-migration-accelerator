@@ -1,10 +1,14 @@
-# Pseudo-Domo MCP
+# Databricks Domo Migration Accelerator
 
 **Assess a Domo estate and migrate it to Databricks — via an MCP server *and* a
 web console.**
 
-Pseudo-Domo packages the Domo discovery / assessment / migration workflow two
-ways over one engine:
+> The Python package is `pseudo_domo_mcp` (it impersonates a Domo tenant's API
+> surface so the whole workflow runs offline). The product is the *Databricks
+> Domo Migration Accelerator*.
+
+It packages the Domo discovery / assessment / migration workflow two ways over
+one engine:
 
 - an **MCP server** (FastMCP, stdio + streamable-HTTP) so an AI client (Claude
   Code, Cursor, Genie Code, …) can drive the migration conversationally, and
