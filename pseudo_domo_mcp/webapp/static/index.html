@@ -123,7 +123,9 @@
       </div>
       <div class="build-layout">
         <aside class="build-sidebar">
-          <div class="sidebar-head"><span>Migratable assets</span></div>
+          <div class="sidebar-head"><span>Migratable assets</span>
+            <button id="btn-upload" class="btn ghost tiny" title="Upload a Magic ETL JSON export">⬆ Upload JSON</button>
+          </div>
           <div id="build-list" class="asset-list compact"></div>
         </aside>
         <div class="build-main">
@@ -197,6 +199,33 @@
       </div>
       <div class="phase-actions"><button class="btn ghost" data-prev>← Back to Plan</button></div>
     </section>
+  </div>
+
+  <!-- upload modal — manually add a Magic ETL JSON as a migratable unit -->
+  <div id="upload-modal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head"><span>Upload Magic ETL JSON</span><button id="up-close" class="btn ghost">✕</button></div>
+      <div class="modal-body">
+        <p class="muted small">Add a migratable unit from a Domo Magic ETL DataFlow export (the <code>/api/dataprocessing/v1/dataflows/{id}</code> JSON). It joins the Build list just like a discovered asset.</p>
+        <label>Magic ETL DataFlow JSON <span class="req">*required</span>
+          <input id="up-flow" type="file" accept=".json,application/json" />
+        </label>
+        <details class="up-optional">
+          <summary>Optional: output DataSet schema &amp; card Beast Modes</summary>
+          <p class="muted small">If omitted, the output schema is <b>inferred from the transform DAG</b> and the card is treated as having no Beast Modes. Supply them for exact schema parity or if the source card had calculated fields.</p>
+          <label>Output DataSet schema JSON
+            <input id="up-schema" type="file" accept=".json,application/json" />
+          </label>
+          <label>Card Beast Modes JSON
+            <input id="up-card" type="file" accept=".json,application/json" />
+          </label>
+        </details>
+        <div id="up-status" class="up-status"></div>
+      </div>
+      <div class="modal-foot">
+        <button id="up-submit" class="btn primary">Add to Build list</button>
+      </div>
+    </div>
   </div>
 
   <!-- config modal (reachable anytime) -->

@@ -250,10 +250,20 @@ async function loadPlan() {
 }
 
 // ------------------------------------------------------------ build --------
-function loadBuild() {
-  state.buildAll = (state.assets || []).filter(a => a.build);
+async function loadBuild() {
   state.buildFilters = state.buildFilters || { search: "", type: "", triplet: "" };
+  await refreshUploads();       // pull any previously-uploaded flows
+  mergeBuildAll();
   renderBuildList();
+}
+async function refreshUploads() {
+  try { state.uploads = (await api("/api/uploads")).uploads || []; }
+  catch (e) { state.uploads = state.uploads || []; }
+}
+function mergeBuildAll() {
+  // Discovered buildable assets + manually-uploaded flows (uploads first).
+  const discovered = (state.assets || []).filter(a => a.build);
+  state.buildAll = [...(state.uploads || []), ...discovered];
 }
 function renderBuildList() {
   const list = $("#build-list");
@@ -268,12 +278,16 @@ function renderBuildList() {
 
   const magic = all.filter(a => a.asset_type === "magic_etl").length;
   const sql = all.filter(a => a.asset_type === "sql_dataflow").length;
-  const cards = items.map(a =>
-    `<div class="asset-card mini ${a.has_triplet ? "" : "disabled"}" data-lid="${a.triplet_lineage_id || ""}">
+  const cards = items.map(a => {
+    const upTag = a.uploaded ? `<span class="chip up-chip" title="Manually uploaded">⬆ uploaded</span>` : "";
+    const sub = a.uploaded
+      ? (a.schema_inferred ? "uploaded · schema inferred from DAG" : "uploaded · schema provided")
+      : (a.has_triplet ? "full lineage available" : "metadata only — needs export");
+    return `<div class="asset-card mini ${a.has_triplet ? "" : "disabled"}" data-lid="${a.triplet_lineage_id || ""}">
       <div class="ac-head"><span class="atype at-${a.asset_type}">${typeLabel(a.asset_type)}</span>
-        <span class="ac-name">${esc(a.name)}</span></div>
-      <div class="muted small">${a.has_triplet ? "full lineage available" : "metadata only — needs export"}</div>
-    </div>`).join("") || `<div class="loading">No assets match.</div>`;
+        <span class="ac-name">${esc(a.name)}</span>${upTag}</div>
+      <div class="muted small">${sub}</div>
+    </div>`; }).join("") || `<div class="loading">No assets match.</div>`;
 
   list.innerHTML = `
     <div class="build-toolbar">
@@ -529,6 +543,49 @@ async function doCreate() {
     ${b.deploy_log ? `<div class="muted small">${esc(b.deploy_log)}</div>` : ""}`;
 }
 
+// ------------------------------------------------------------ upload modal -
+function openUpload() {
+  $("#up-flow").value = ""; $("#up-schema").value = ""; $("#up-card").value = "";
+  $("#up-status").className = "up-status"; $("#up-status").innerHTML = "";
+  $("#up-submit").disabled = false; $("#up-submit").textContent = "Add to Build list";
+  $("#upload-modal").classList.remove("hidden");
+}
+async function submitUpload() {
+  const flow = $("#up-flow").files[0];
+  const st = $("#up-status");
+  if (!flow) { st.className = "up-status err"; st.textContent = "Choose a Magic ETL DataFlow JSON first."; return; }
+  const fd = new FormData();
+  fd.append("file", flow);
+  if ($("#up-schema").files[0]) fd.append("schema_file", $("#up-schema").files[0]);
+  if ($("#up-card").files[0]) fd.append("card_file", $("#up-card").files[0]);
+  const btn = $("#up-submit"); btn.disabled = true; btn.textContent = "Uploading…";
+  st.className = "up-status working"; st.textContent = "Parsing & inferring…";
+  let r;
+  try { r = await (await fetch("/api/upload", { method: "POST", body: fd })).json(); }
+  catch (e) { st.className = "up-status err"; st.textContent = "Upload failed: " + e; btn.disabled = false; btn.textContent = "Add to Build list"; return; }
+  if (r.error) {
+    st.className = "up-status err";
+    st.innerHTML = esc(r.error) + (r.needs_schema
+      ? `<div class="muted small" style="margin-top:6px">The output columns pass through from a raw source, so they can't be inferred. Add the <b>output DataSet schema JSON</b> above and try again.</div>` : "");
+    btn.disabled = false; btn.textContent = "Add to Build list";
+    return;
+  }
+  // success — merge into the build list, select it, close.
+  await refreshUploads(); mergeBuildAll(); renderBuildList();
+  st.className = "up-status ok";
+  st.innerHTML = `Added <b>${esc(r.name)}</b> — ${r.columns} output columns` +
+    (r.schema_inferred ? " (inferred)" : "") + ". Opening…";
+  setTimeout(() => {
+    $("#upload-modal").classList.add("hidden");
+    const asset = state.buildAll.find(a => a.triplet_lineage_id === r.triplet_lineage_id);
+    if (asset) {
+      const el = $(`#build-items .asset-card[data-lid="${r.triplet_lineage_id}"]`);
+      if (el) { $$("#build-items .asset-card").forEach(x => x.classList.remove("active")); el.classList.add("active"); }
+      openBuild(asset);
+    }
+  }, 700);
+}
+
 // ------------------------------------------------------------ config modal -
 async function refreshPills() {
   $("#provider-pill").textContent = `provider: ${state.config.domo_provider}`;
@@ -584,6 +641,9 @@ $("#btn-scan").onclick = runScan;
 $("#btn-create").onclick = doCreate;
 $("#search").oninput = e => { state.search = e.target.value; renderAssets(); };
 $("#btn-config").onclick = openConfig;
+$("#btn-upload").onclick = openUpload;
+$("#up-close").onclick = () => $("#upload-modal").classList.add("hidden");
+$("#up-submit").onclick = submitUpload;
 $("#cfg-close").onclick = () => $("#config-modal").classList.add("hidden");
 $("#cfg-save").onclick = saveConfig;
 $("#cfg-refresh-patterns").onclick = refreshPatterns;

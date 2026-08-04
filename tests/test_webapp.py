@@ -156,6 +156,102 @@ def test_map_lineage_view_and_override():
     assert r.get("saved") is True
 
 
+def _magic_flow():
+    """A minimal but real Magic ETL flow whose output columns are inferable
+    (GroupBy resets to a known column set, so no raw `*` reaches PUBLISH)."""
+    return {
+        "id": "df-test-upload", "name": "Test Upload Flow", "databaseType": "MAGIC",
+        "inputs": [{"dataSourceId": "ds-in", "dataSourceName": "Orders"}],
+        "actions": [
+            {"id": "a1", "type": "LoadFromVault", "name": "Load", "dataSourceId": "ds-in"},
+            {"id": "a2", "type": "GroupBy", "name": "By cust", "dependsOn": ["a1"],
+             "groupByColumns": ["customer_id"],
+             "aggregations": [{"outputColumn": "order_count", "function": "COUNT", "column": "order_id"},
+                              {"outputColumn": "revenue", "function": "SUM", "column": "total"}]},
+            {"id": "a3", "type": "PublishToVault", "name": "Publish", "dependsOn": ["a2"],
+             "dataSourceName": "Cust_Rollup", "dataSourceId": "ds-out"},
+        ],
+    }
+
+
+def _upload(flow):
+    import json
+    return client.post("/api/upload",
+                       files={"file": ("flow.json", json.dumps(flow), "application/json")})
+
+
+def test_upload_infers_schema_and_transpiles():
+    r = _upload(_magic_flow())
+    assert r.status_code == 200
+    meta = r.json()
+    lid = meta["triplet_lineage_id"]
+    assert meta["uploaded"] and meta["schema_inferred"]
+    # GroupBy resets to exactly these 3 columns.
+    assert meta["columns"] == 3
+    # it flows through analyze + draft (gate PASS, no Beast Modes to fold)
+    g = client.get(f"/api/analyze/{lid}").json()
+    assert len(g["nodes"]) == 3 and not g.get("error")
+    d = client.get(f"/api/draft/{lid}").json()
+    assert d["reconciliation"]["gate"] == "PASS"
+    assert d["counts"]["beast_modes_total"] == 0
+    # and it can be mapped (schema comes from the synthesized triplet)
+    m = client.get(f"/api/map/lineage/{lid}").json()
+    assert m["target_table"] and len(m["columns"]) == 3
+    # it appears in the uploads list, then cleans up
+    assert any(u["triplet_lineage_id"] == lid for u in client.get("/api/uploads").json()["uploads"])
+    assert client.delete(f"/api/uploads/{lid}").json()["deleted"] is True
+
+
+def test_upload_rejects_non_flow_json():
+    import json
+    r = client.post("/api/upload",
+                    files={"file": ("x.json", json.dumps({"not": "a flow"}), "application/json")})
+    assert r.status_code == 400
+    assert "actions" in r.json()["error"].lower()
+
+
+def test_upload_needs_schema_when_uninferable():
+    # A pass-through flow (Load -> Filter -> Publish) carries a raw `*`, so the
+    # exact output columns can't be inferred; the API asks for the schema.
+    flow = {
+        "id": "df-passthrough", "name": "Passthrough", "databaseType": "MAGIC",
+        "inputs": [{"dataSourceId": "ds-in", "dataSourceName": "Raw"}],
+        "actions": [
+            {"id": "a1", "type": "LoadFromVault", "name": "Load", "dataSourceId": "ds-in"},
+            {"id": "a2", "type": "Filter", "name": "F", "dependsOn": ["a1"],
+             "filters": [{"column": "status", "operator": "EQUALS", "value": "OPEN"}]},
+            {"id": "a3", "type": "PublishToVault", "name": "Pub", "dependsOn": ["a2"],
+             "dataSourceName": "Out", "dataSourceId": "ds-out"},
+        ],
+    }
+    r = _upload(flow)
+    assert r.status_code == 400
+    assert r.json().get("needs_schema") is True
+
+
+def test_upload_with_explicit_schema_and_card():
+    import json
+    flow = {
+        "id": "df-passthrough2", "name": "Passthrough2", "databaseType": "MAGIC",
+        "inputs": [{"dataSourceId": "ds-in", "dataSourceName": "Raw"}],
+        "actions": [
+            {"id": "a1", "type": "LoadFromVault", "name": "Load", "dataSourceId": "ds-in"},
+            {"id": "a2", "type": "PublishToVault", "name": "Pub", "dependsOn": ["a1"],
+             "dataSourceName": "Out", "dataSourceId": "ds-out"},
+        ],
+    }
+    schema = {"id": "ds-out", "name": "Out",
+              "schema": {"columns": [{"name": "id", "type": "LONG"},
+                                     {"name": "label", "type": "STRING"}]}}
+    r = client.post("/api/upload", files={
+        "file": ("f.json", json.dumps(flow), "application/json"),
+        "schema_file": ("s.json", json.dumps(schema), "application/json")})
+    assert r.status_code == 200
+    meta = r.json()
+    assert meta["schema_inferred"] is False and meta["columns"] == 2
+    client.delete(f"/api/uploads/{meta['triplet_lineage_id']}")
+
+
 def test_saved_mapping_conforms_generated_sdp():
     # save a mapping, then the draft SDP includes a conformed view w/ canonical names
     client.post("/api/map/lineage/customer360", json={

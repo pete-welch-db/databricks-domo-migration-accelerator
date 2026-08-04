@@ -20,7 +20,7 @@ import os
 import tempfile
 from typing import Any, Dict, Optional
 
-from fastapi import FastAPI, Body
+from fastapi import FastAPI, Body, UploadFile, File, Form
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -32,6 +32,7 @@ from ..core import store
 from ..core import patterns
 from ..core import model_catalog
 from ..core import llm
+from ..core import uploads
 from ..core.graph import build_graph
 from ..core.bundle import write_bundle
 from ..transpiler import pipeline
@@ -85,16 +86,26 @@ def history() -> Dict[str, Any]:
             "bundles": s.list("bundles")}
 
 
+def _resolve_triplet_dir(lineage_id: str):
+    """Locate a lineage's triplet dir — an uploaded flow first (synthesized
+    under generated/_uploads/), else the active provider (fixtures / live API).
+    Uploaded lineages are keyed `upload_*` so the lookup is cheap and unambiguous."""
+    up = uploads.triplet_dir(lineage_id)
+    if up is not None:
+        return up
+    return get_provider().triplet_dir(lineage_id)
+
+
 @app.get("/api/analyze/{lineage_id}")
 def analyze(lineage_id: str) -> Dict[str, Any]:
     """Analyze/preview: the Magic ETL DAG as a medallion-layered graph."""
-    p = get_provider()
-    tdir = p.triplet_dir(lineage_id)
+    tdir = _resolve_triplet_dir(lineage_id)
     if tdir is None:
         return JSONResponse(
             {"error": f"No full triplet for '{lineage_id}'. Magic ETL internals "
                       "come from the Domo instance API (dataprocessing); set "
-                      "DOMO_INSTANCE + DOMO_DEVELOPER_TOKEN, or use fixtures."},
+                      "DOMO_INSTANCE + DOMO_DEVELOPER_TOKEN, use fixtures, or "
+                      "upload a Magic ETL JSON."},
             status_code=404)
     return build_graph(lineage_id, tdir)
 
@@ -103,11 +114,11 @@ def analyze(lineage_id: str) -> Dict[str, Any]:
 def draft(lineage_id: str, language: str = "") -> Dict[str, Any]:
     """Draft: run the transpiler, return real SDP (Lakeflow Declarative Pipeline)
     code in the chosen language + the reconcile gate (no deploy)."""
-    p = get_provider()
-    tdir = p.triplet_dir(lineage_id)
+    tdir = _resolve_triplet_dir(lineage_id)
     if tdir is None:
         return JSONResponse({"error": f"No triplet for '{lineage_id}' — Magic "
-                             "ETL internals need the Domo instance API."},
+                             "ETL internals need the Domo instance API, or "
+                             "upload a Magic ETL JSON."},
                             status_code=404)
     tmp = tempfile.mkdtemp(prefix=f"draft_{lineage_id}_")
     result = pipeline.run(lineage_id, tdir,
@@ -139,11 +150,10 @@ def create(lineage_id: str, payload: Optional[Dict[str, Any]] = Body(default=Non
     profile = payload.get("profile", cfg.databricks_profile)
     language = payload.get("language") or cfg.pipeline_language
 
-    p = get_provider()
-    tdir = p.triplet_dir(lineage_id)
+    tdir = _resolve_triplet_dir(lineage_id)
     if tdir is None:
         return {"error": f"No triplet for '{lineage_id}' — Magic ETL internals "
-                "need the Domo instance API."}
+                "need the Domo instance API, or upload a Magic ETL JSON."}
     tmp = tempfile.mkdtemp(prefix=f"create_{lineage_id}_")
     result = pipeline.run(lineage_id, tdir,
                           os.path.join(tmp, "out"), os.path.join(tmp, "sql"))
@@ -180,6 +190,59 @@ def create(lineage_id: str, payload: Optional[Dict[str, Any]] = Body(default=Non
             "bundle": bundle}
 
 
+@app.post("/api/upload")
+async def upload_flow(file: UploadFile = File(...),
+                      schema_file: Optional[UploadFile] = File(default=None),
+                      card_file: Optional[UploadFile] = File(default=None)) -> Dict[str, Any]:
+    """Manually add a migratable unit from an uploaded Magic ETL JSON.
+
+    The transpiler needs a triplet (flow + output DataSet schema + card Beast
+    Modes). Only `file` (the Magic ETL DataFlow) is required — if `schema`
+    and/or `card` are omitted, they're synthesized: the schema is inferred from
+    the transform DAG, the card is empty (no Beast Modes). Returns a build-asset
+    descriptor the UI drops into the Build list, or a 400 with `needs_schema`
+    when the output columns can't be inferred and no schema was supplied."""
+    import json as _json
+
+    async def _parse(f: Optional[UploadFile]):
+        if f is None:
+            return None
+        raw = await f.read()
+        if not raw:
+            return None
+        return _json.loads(raw.decode("utf-8"))
+
+    try:
+        flow = await _parse(file)
+    except (ValueError, UnicodeDecodeError) as e:
+        return JSONResponse({"error": f"Not valid JSON: {e}"}, status_code=400)
+    if not isinstance(flow, dict):
+        return JSONResponse({"error": "Uploaded file is not a JSON object."},
+                            status_code=400)
+    try:
+        schema_doc = await _parse(schema_file)
+        card_doc = await _parse(card_file)
+    except (ValueError, UnicodeDecodeError) as e:
+        return JSONResponse({"error": f"Schema/card not valid JSON: {e}"},
+                            status_code=400)
+
+    meta = uploads.register_upload(flow, schema=schema_doc, card=card_doc)
+    if meta.get("error"):
+        return JSONResponse(meta, status_code=400)
+    return meta
+
+
+@app.get("/api/uploads")
+def list_uploads() -> Dict[str, Any]:
+    """All manually-uploaded build assets (persisted under generated/_uploads)."""
+    return {"uploads": uploads.list_uploads()}
+
+
+@app.delete("/api/uploads/{lineage_id}")
+def delete_upload(lineage_id: str) -> Dict[str, Any]:
+    return {"deleted": uploads.delete_upload(lineage_id)}
+
+
 @app.get("/api/patterns")
 def get_patterns() -> Dict[str, Any]:
     """Current SDP/DAB pattern manifest (tracked from ai-dev-kit)."""
@@ -208,6 +271,17 @@ def set_config(updates: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
     return cfgmod.save_config(updates).public()
 
 
+def _upload_map_kwargs(lineage_id: str) -> Dict[str, Any]:
+    """For an uploaded lineage, feed the synthesized triplet's schema straight
+    into the mapper (it isn't in the provider census). Empty dict otherwise."""
+    cols = uploads.upload_schema_columns(lineage_id)
+    if cols is None:
+        return {}
+    meta = uploads.get_upload(lineage_id) or {}
+    return {"schema_cols": cols,
+            "dataset_name": meta.get("output_dataset_name", "")}
+
+
 @app.get("/api/map/lineage/{lineage_id}")
 def map_lineage(lineage_id: str, industry: str = "", force_table: str = "") -> Dict[str, Any]:
     """Per-asset mapping view: map a Build lineage's output DataSet onto the
@@ -215,7 +289,8 @@ def map_lineage(lineage_id: str, industry: str = "", force_table: str = "") -> D
     ind = industry or _default_industry()
     return mapping.industry_model_map(
         lineage_id=lineage_id, industry=ind,
-        force_table_fqn=force_table or None)
+        force_table_fqn=force_table or None,
+        **_upload_map_kwargs(lineage_id))
 
 
 @app.post("/api/map/lineage/{lineage_id}")
@@ -226,7 +301,8 @@ def save_mapping(lineage_id: str, payload: Dict[str, Any] = Body(...)) -> Dict[s
     res = mapping.industry_model_map(
         lineage_id=lineage_id, industry=ind,
         force_table_fqn=payload.get("force_table") or None,
-        overrides=payload.get("overrides") or {})
+        overrides=payload.get("overrides") or {},
+        **_upload_map_kwargs(lineage_id))
     if payload.get("accept") and not res.get("error"):
         try:
             store.get_store().put("mappings", lineage_id, {

@@ -37,7 +37,9 @@ def industry_model_map(dataset_id: str = "",
                        industry: str = "automotive",
                        prefer_domain: Optional[str] = None,
                        force_table_fqn: Optional[str] = None,
-                       overrides: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+                       overrides: Optional[Dict[str, str]] = None,
+                       schema_cols: Optional[list] = None,
+                       dataset_name: str = "") -> Dict[str, Any]:
     """Draft-map a Domo DataSet's columns onto a canonical industry-model table.
 
     Conforms a Domo output DataSet to the Databricks Industry Data Model
@@ -51,28 +53,33 @@ def industry_model_map(dataset_id: str = "",
         prefer_domain: bias table selection; inferred from name if omitted.
         force_table_fqn: pin the target table (user re-selected it in the UI).
         overrides: {domo_column: target_column | ""} human column choices.
+        schema_cols: pre-resolved column contract (used for uploaded lineages
+            whose schema lives in a synthesized triplet, not the census).
+        dataset_name: display/domain-hint name when schema_cols is supplied.
 
     Returns per-column mappings with confidence + ranked candidates, plus the
     model's table catalog and the chosen table's columns for UI re-selection.
     """
     p = get_provider()
 
-    if lineage_id and not dataset_id:
-        dataset_id = _output_dataset_for_lineage(p, lineage_id) or ""
-    schema_cols = _resolve_schema(p, dataset_id)
+    if schema_cols is None:
+        if lineage_id and not dataset_id:
+            dataset_id = _output_dataset_for_lineage(p, lineage_id) or ""
+        schema_cols = _resolve_schema(p, dataset_id)
     if schema_cols is None:
         return {"error": f"No column schema available for '{dataset_id or lineage_id}'. "
                          "Needs an output/derived DataSet with a known schema."}
 
     ds = next((d for d in p.list_datasets() if d["id"] == dataset_id), {})
+    ds_name = ds.get("name") or dataset_name
     if prefer_domain is None and not force_table_fqn:
-        prefer_domain = classifier.classify_domain(ds.get("name", ""))
+        prefer_domain = classifier.classify_domain(ds_name)
 
     model = load_model(industry)
     result = map_columns(model, schema_cols, prefer_domain=prefer_domain,
                          force_table_fqn=force_table_fqn, overrides=overrides)
     result["dataset_id"] = dataset_id
-    result["dataset_name"] = ds.get("name")
+    result["dataset_name"] = ds_name
     result["lineage_id"] = lineage_id
     result["inferred_domain"] = prefer_domain
     result["note"] = (

@@ -387,3 +387,20 @@ th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: upp
 .build-filters { display: flex; gap: 6px; flex-wrap: wrap; }
 .build-count { text-align: right; }
 .build-sidebar #build-items { max-height: 62vh; overflow-y: auto; }
+
+/* ---- manual Magic ETL upload (Build phase) ---- */
+.btn.tiny { padding: 3px 8px; font-size: 11px; line-height: 1.2; }
+.up-chip { color: var(--accent-2); border-color: #26466b; }
+.req { color: var(--muted); font-weight: 400; font-size: 11px; margin-left: 4px; }
+.up-optional { grid-column: 1 / -1; margin: 6px 0; }
+.up-optional summary { cursor: pointer; color: var(--accent-2); font-size: 13px; }
+.up-optional label { margin-top: 8px; }
+#upload-modal .modal-card { max-width: 560px; }
+#upload-modal input[type=file] { width: 100%; margin-top: 4px; font-size: 13px; color: var(--text); }
+.up-status { grid-column: 1 / -1; margin-top: 10px; padding: 0; font-size: 13px; }
+.up-status:not(:empty) { padding: 10px 12px; border-radius: 8px; background: var(--panel-2); border: 1px solid var(--border); }
+.up-status.working { border-color: var(--accent-2); }
+.up-status.ok { border-color: #1c6b3a; background: #10231a; }
+.up-status.err { border-color: #6b1c1c; background: #2a1414; color: #ff8a76; }
+#upload-modal .modal-body { grid-template-columns: 1fr; }
+#upload-modal .modal-body label { grid-column: 1 / -1; }
