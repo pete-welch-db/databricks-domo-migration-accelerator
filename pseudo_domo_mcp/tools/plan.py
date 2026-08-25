@@ -13,6 +13,8 @@ from typing import Any, Dict, List
 from ..core.domo_client import get_provider
 from ..core import classifier
 from ..core import feasibility as feas
+from ..core import store
+from ..core import rationalize as ratmod
 from .assessment import domo_assess
 from .discovery import domo_discover
 
@@ -39,15 +41,27 @@ def migration_plan() -> Dict[str, Any]:
     p = get_provider()
     source_feas = feas.score_all(p.source_systems())
 
+    # Human dispositions (if any) take precedence over the auto heuristic:
+    # annotate each dataflow, and drop anything explicitly marked Retire.
+    disp = {r["asset_id"]: r for r in store.get_store().list("rationalizations")}
+    for a in assessments:
+        d = disp.get(a["dataflow_id"])
+        if d:
+            a["disposition"] = d
+    active = [a for a in assessments
+              if (disp.get(a["dataflow_id"]) or {}).get("disposition") != "Retire"]
+    retired = [a["name"] for a in assessments
+               if (disp.get(a["dataflow_id"]) or {}).get("disposition") == "Retire"]
+
     # Rank: value band desc, then complexity band asc, then $/yr value.
     ranked = sorted(
-        assessments,
+        active,
         key=lambda a: (_VALUE_RANK.get(a["value"]["band"], 3),
                        _CX_RANK.get(a["complexity"]["band"], 3),
                        -_value_num(a["value"]["value_per_year"])),
     )
 
-    waves = _bucket_waves(ranked)
+    waves = _bucket_waves(ranked, disp)
     pilot = ranked[0] if ranked else None
 
     return {
@@ -55,6 +69,8 @@ def migration_plan() -> Dict[str, Any]:
             "census": census["counts"],
             "dataflow_types": census["dataflow_types"],
             "governance_split": census["governance_split"],
+            "rationalization": ratmod.rollup(list(disp.values())),
+            "retired_excluded": retired,
         },
         "recommended_pilot": _pilot_view(pilot),
         "waves": waves,
@@ -73,34 +89,53 @@ def migration_plan() -> Dict[str, Any]:
     }
 
 
-def _bucket_waves(ranked: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Rank-into-thirds so waves are always populated and priority-ordered.
+def _bucket_waves(ranked: List[Dict[str, Any]],
+                  disp: Dict[str, Any] | None = None) -> List[Dict[str, Any]]:
+    """Bucket active assets into waves.
 
-    `ranked` is pre-sorted best-first (value desc, then complexity asc). We keep
-    shadow IT as its own wave (it's a different path — an Apps + Lakebase
-    re-platform, not a pipeline transpile), then split the GOVERNED assets by
-    rank: the higher-priority half seeds Wave 1 (start here), the rest Wave 2.
+    If humans have assigned any waves (via rationalization), group by the
+    explicit `assigned_wave` — decisions drive the plan. Otherwise fall back to
+    the auto heuristic: shadow IT is its own wave (an Apps + Lakebase
+    re-platform, not a pipeline transpile), and governed assets split by rank
+    into Wave 1 (start here) / Wave 2.
     """
+    disp = disp or {}
+
     def entry(a):
+        d = disp.get(a.get("dataflow_id")) or a.get("disposition") or {}
         return {
             "name": a["name"], "data_domain": a["data_domain"],
             "value": a["value"], "complexity_band": a["complexity"]["band"],
             "governance": a["governance"], "has_triplet": a["has_triplet"],
+            "disposition": d.get("disposition"),
+            "target_surface": d.get("target_surface"),
         }
+
+    # If any active asset has an explicit assigned_wave, honor human wave design.
+    assigned = {a["dataflow_id"]: (disp.get(a["dataflow_id"]) or {}).get("assigned_wave")
+                for a in ranked}
+    if any(assigned.values()):
+        by_wave: Dict[int, List[Dict[str, Any]]] = {}
+        for a in ranked:
+            w = assigned.get(a["dataflow_id"]) or 99  # undecided → trailing wave
+            by_wave.setdefault(int(w), []).append(entry(a))
+        out = []
+        for w in sorted(by_wave):
+            theme = ("Unassigned — decide a wave in Rationalize" if w == 99
+                     else f"Wave {w} — assigned in rationalization")
+            out.append({"wave": w, "theme": theme, "items": by_wave[w]})
+        return out
 
     governed = [a for a in ranked if a["governance"] != "shadow"]
     shadow = [a for a in ranked if a["governance"] == "shadow"]
-
-    # Split governed in half (ceil into wave 1 so a lone asset still leads).
     cut = (len(governed) + 1) // 2
-    w1 = [entry(a) for a in governed[:cut]]
-    w2 = [entry(a) for a in governed[cut:]]
-    w3 = [entry(a) for a in shadow]
-
     return [
-        {"wave": 1, "theme": "Start here — highest-priority governed pipelines (best value-to-effort)", "items": w1},
-        {"wave": 2, "theme": "Governed remainder — larger or more complex pipelines", "items": w2},
-        {"wave": 3, "theme": "Shadow IT — Databricks Apps + Lakebase re-platform", "items": w3},
+        {"wave": 1, "theme": "Start here — highest-priority governed pipelines (best value-to-effort)",
+         "items": [entry(a) for a in governed[:cut]]},
+        {"wave": 2, "theme": "Governed remainder — larger or more complex pipelines",
+         "items": [entry(a) for a in governed[cut:]]},
+        {"wave": 3, "theme": "Shadow IT — Databricks Apps + Lakebase re-platform",
+         "items": [entry(a) for a in shadow]},
     ]
 
 

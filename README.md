@@ -7,6 +7,26 @@ web console.**
 > surface so the whole workflow runs offline). The product is the *Databricks
 > Domo Migration Accelerator*.
 
+The methodology mirrors Databricks **Lakebridge** (Profiler + Analyzer →
+Convert → Reconcile), extended with a value-driven decision step:
+
+**Assess → Rationalize → Convert → Reconcile**
+
+- **Assess** — inventory + governance inference + per-asset **complexity, value,
+  effort (1-5), and a usage proxy** (dependent cards + refresh cadence + scale).
+- **Rationalize** — decide each asset's **disposition** (Retire · Repoint ·
+  Rebuild · Elevate · Consolidate) and **target surface** (AI/BI + Genie ·
+  Genie App Builder · Sigma Input Tables · Apps + Lakebase); suggestions are
+  pre-filled from the assess signals. **Filtered discovery** narrows the estate,
+  and a saved filter set is a migration **wave**.
+- **Convert** — transpile Magic ETL / SQL DataFlows to Lakeflow pipelines +
+  Unity Catalog metric views; recover Domo **orchestration** (schedules +
+  dataflow dependencies) and map it to Databricks Workflows.
+- **Reconcile** — schema-parity gate on the rebuilt gold.
+
+A **future-state estimate** rolls the effort scores + decisions into migration
+FTE-weeks, a target consumption size, and (with your Domo spend) a savings frame.
+
 It packages the Domo discovery / assessment / migration workflow two ways over
 one engine:
 
@@ -180,6 +200,13 @@ fixtures/
 models/                vendored industry-model DDL (automotive, transport_shipping)
 tests/                 end-to-end pytest
 ```
+
+## Documentation
+
+- **[docs/GUIDE.md](docs/GUIDE.md)** — install, the full Assess → Rationalize →
+  Convert → Reconcile workflow, the MCP tool + REST reference, and going live.
+- **[docs/FAQ.md](docs/FAQ.md)** — what it is, how it relates to Lakebridge,
+  scoring/usage, dispositions & surfaces, orchestration, estimation, and more.
 
 ## License
 

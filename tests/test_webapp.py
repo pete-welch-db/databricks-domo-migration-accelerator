@@ -260,3 +260,49 @@ def test_saved_mapping_conforms_generated_sdp():
     assert d["sdp"]["conformed"] is True
     assert "_conformed" in d["sdp"]["code"]
     assert "AS `city`" in d["sdp"]["code"]
+
+
+def test_inventory_has_scores_and_facets():
+    inv = client.get("/api/inventory").json()
+    assert "facets" in inv and "governance" in inv["facets"]
+    df = next(a for a in inv["assets"] if a["asset_type"] in ("magic_etl", "sql_dataflow"))
+    assert "effort" in df and "usage" in df
+
+
+def test_filter_endpoint_narrows():
+    r = client.post("/api/inventory/filter", json={
+        "governance": "governed", "asset_type": ["magic_etl", "sql_dataflow"]}).json()
+    assert 1 <= r["matched"] <= r["total"]
+    assert all(a["governance"] == "governed" for a in r["assets"])
+
+
+def test_estimate_endpoint():
+    e = client.get("/api/estimate?domo_annual_spend=1200000").json()
+    assert e["migration_effort"]["est_fte_weeks"] >= 0
+    assert e["target_consumption"]["band"] in ("SMALL", "MEDIUM", "LARGE")
+
+
+def test_rationalize_roundtrip_and_plan_reflects():
+    import json as _json
+    from pseudo_domo_mcp.core import store as _store
+    # pick a governed dataflow, mark it Retire
+    r = client.post("/api/inventory/filter", json={
+        "asset_type": ["magic_etl", "sql_dataflow"]}).json()
+    aid = r["assets"][0]["id"]
+    save = client.post("/api/rationalize", json={
+        "asset_id": aid, "disposition": "Retire", "target_surface": "none",
+        "rationale": "test"}).json()
+    assert save["saved"] is True
+    lst = client.get("/api/rationalizations").json()
+    assert any(x["asset_id"] == aid for x in lst["rationalizations"])
+    # the plan now surfaces the rationalization rollup + excludes the retired asset
+    pl = client.get("/api/plan").json()
+    assert "rationalization" in pl["summary"]
+    assert save["record"]["name"] in pl["summary"]["retired_excluded"]
+    # cleanup: keep dev state clean (no delete API — reset the collection)
+    try:
+        d = _json.load(open(_store._LOCAL_PATH))
+        d["rationalizations"] = {}
+        _json.dump(d, open(_store._LOCAL_PATH, "w"), indent=2)
+    except Exception:
+        pass

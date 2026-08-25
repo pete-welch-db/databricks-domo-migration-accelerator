@@ -7,6 +7,7 @@ from typing import Any, Dict, List
 from ..core.domo_client import get_provider
 from ..core import classifier
 from ..core import governance
+from ..core import scoring
 from ..core import llm
 
 __all__ = ["domo_assess"]
@@ -30,6 +31,9 @@ def domo_assess(scope: str = "dataflows") -> Dict[str, Any]:
     datasets = {d["id"]: d for d in p.list_datasets()}
     cards = p.list_cards()
     dataflows = p.list_dataflows()
+    # Profiler/Analyzer usage context (dependency + scale maps for the proxy).
+    usage_ctx = scoring.usage_context(list(datasets.values()), dataflows, cards,
+                                      p.list_pages())
 
     # Beast-mode count per output dataset (via the card bound to it).
     bm_by_dataset: Dict[str, int] = {}
@@ -54,6 +58,12 @@ def domo_assess(scope: str = "dataflows") -> Dict[str, Any]:
                                              " ".join(srcs))
         cx = classifier.complexity_score(df, beast_modes)
         val = classifier.value_tag(domain)
+        eff = scoring.score_effort(df, bool(df.get("_triplet_lineage_id")), cx)
+        usage = scoring.score_usage({
+            "asset_type": "magic_etl" if df.get("databaseType") == "MAGIC" else "sql_dataflow",
+            "_output_dataset_ids": out_ids,
+            "_run_cadence": df.get("runCadence"),
+        }, usage_ctx)
         # INFER governance from API-observable signals (source type, writeback,
         # owner shape, cadence) — do NOT trust a pre-tagged field.
         gov = governance.infer(df, input_ds)
@@ -74,6 +84,8 @@ def domo_assess(scope: str = "dataflows") -> Dict[str, Any]:
             "governance_rationale": rationale,
             "complexity": cx,
             "value": val,
+            "effort": eff,
+            "usage": usage,
             "has_triplet": bool(df.get("_triplet_lineage_id")),
             "triplet_lineage_id": df.get("_triplet_lineage_id"),
         })

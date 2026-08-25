@@ -44,9 +44,11 @@ def _register_sync(fn):
 # Import tool implementations and register them. Each tools module exposes
 # plain sync functions; we wrap+register here so the modules stay import-safe
 # and unit-testable without FastMCP.
-from .tools import discovery, assessment, mapping, feasibility, transpile, plan  # noqa: E402
+from .tools import (discovery, assessment, mapping, feasibility, transpile, plan,  # noqa: E402
+                    filters, rationalize, estimate, orchestration)
 
-for _mod in (discovery, assessment, mapping, feasibility, transpile, plan):
+for _mod in (discovery, assessment, mapping, feasibility, transpile, plan,
+             filters, rationalize, estimate, orchestration):
     for _name in _mod.__all__:
         _register_sync(getattr(_mod, _name))
 

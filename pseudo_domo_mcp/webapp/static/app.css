@@ -404,3 +404,33 @@ th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: upp
 .up-status.err { border-color: #6b1c1c; background: #2a1414; color: #ff8a76; }
 #upload-modal .modal-body { grid-template-columns: 1fr; }
 #upload-modal .modal-body label { grid-column: 1 / -1; }
+
+/* ---- Assess scores, filter bar, rationalize (added) ---- */
+.scores { display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; }
+.chip.sc { font-size:10px; padding:1px 6px; background:var(--panel-2); color:var(--muted);
+  border:1px solid var(--border); border-radius:6px; }
+.chip.sc.val-HIGH,.chip.sc.us-HIGH { color:var(--green); border-color:#1c3a2a; }
+.chip.sc.val-MEDIUM,.chip.sc.cx-MEDIUM,.chip.sc.ef-MEDIUM,.chip.sc.us-MEDIUM { color:var(--amber); border-color:#3a3418; }
+.chip.sc.cx-HIGH,.chip.sc.ef-HIGH { color:var(--red); border-color:#3a1c1c; }
+
+.filter-bar { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin:10px 0 4px;
+  padding:8px 10px; background:var(--panel); border:1px solid var(--border); border-radius:10px; }
+.filter-bar .fsel { display:flex; flex-direction:column; gap:2px; font-size:10px; color:var(--muted); }
+.filter-bar select { background:var(--panel-2); color:var(--text); border:1px solid var(--border);
+  border-radius:6px; padding:3px 6px; font-size:12px; }
+#f-count { margin-left:auto; }
+
+.rat-rollup { background:var(--panel); border:1px solid var(--border); border-radius:10px;
+  padding:10px 12px; margin-bottom:10px; }
+.rr-line { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin:2px 0; }
+.rr-est { margin-top:8px; padding:10px; background:var(--panel-2); border-radius:8px; border-left:3px solid var(--accent); }
+.rat-bulk { display:flex; align-items:center; gap:6px; margin-left:auto; }
+.rat-bulk select { background:var(--panel-2); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:3px 6px; }
+.rat-table { width:100%; border-collapse:collapse; font-size:13px; }
+.rat-table th { text-align:left; color:var(--muted); font-weight:600; padding:6px 8px; border-bottom:1px solid var(--border); }
+.rat-table td { padding:8px; border-bottom:1px solid var(--border); vertical-align:top; }
+.rat-table .rat-name { font-weight:600; }
+.rat-table select,.rat-table input { background:var(--panel-2); color:var(--text);
+  border:1px solid var(--border); border-radius:6px; padding:4px 6px; width:100%; }
+.rat-scores { display:flex; flex-wrap:wrap; gap:3px; max-width:150px; }
+.btn.tiny { padding:2px 8px; font-size:11px; }

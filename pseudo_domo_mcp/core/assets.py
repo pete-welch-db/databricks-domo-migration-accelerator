@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from . import governance, feasibility
+from . import governance, feasibility, classifier, scoring
 
 
 def build_inventory(provider) -> Dict[str, Any]:
@@ -31,6 +31,16 @@ def build_inventory(provider) -> Dict[str, Any]:
     cards = provider.list_cards()
     pages = provider.list_pages()
     ds_by_id = {d["id"]: d for d in datasets}
+
+    # Precompute the maps the Profiler/Analyzer scoring needs (one pass).
+    #   bm_by_dataset: Beast Modes reachable per output dataset (for complexity)
+    #   usage_ctx:     dependency + scale maps (for the usage proxy)
+    bm_by_dataset: Dict[str, int] = {}
+    for c in cards:
+        for ds_id in c.get("boundDatasetIds", []):
+            bm_by_dataset[ds_id] = max(bm_by_dataset.get(ds_id, 0),
+                                       c.get("beastModeCount", 0))
+    usage_ctx = scoring.usage_context(datasets, dataflows, cards, pages)
 
     assets: List[Dict[str, Any]] = []
 
@@ -62,20 +72,32 @@ def build_inventory(provider) -> Dict[str, Any]:
     # -- datasets --------------------------------------------------------- #
     for d in datasets:
         src = d.get("_source_system", "Unknown")
-        assets.append({
+        a = {
             "id": d["id"], "asset_type": "dataset", "name": d.get("name"),
             "governance": {"managed": "governed", "manual": "shadow",
                            "app": "shadow"}.get(governance.classify_source(src), "uncertain"),
             "source_system": src,
             "rows": d.get("rows"), "columns": d.get("columns"),
             "owner": (d.get("owner") or {}).get("name"),
-        })
+        }
+        a["usage"] = scoring.score_usage(a, usage_ctx)
+        assets.append(a)
 
     # -- dataflows (Magic ETL / SQL) -------------------------------------- #
     for df in dataflows:
         inp = [ds_by_id[i] for i in df.get("inputDatasetIds", []) if i in ds_by_id]
         g = governance.infer(df, inp)
-        assets.append({
+        srcs = []
+        for ds in inp:
+            s = ds.get("_source_system")
+            if s and s not in srcs:
+                srcs.append(s)
+        out_ids = df.get("outputDatasetIds", [])
+        beast_modes = max((bm_by_dataset.get(o, 0) for o in out_ids), default=0)
+        domain = classifier.classify_domain(df.get("name", ""), " ".join(srcs))
+        has_triplet = bool(df.get("_triplet_lineage_id"))
+        cx = classifier.complexity_score(df, beast_modes)
+        a = {
             "id": df["id"],
             "asset_type": "magic_etl" if df.get("databaseType") == "MAGIC" else "sql_dataflow",
             "name": df.get("name"),
@@ -85,9 +107,20 @@ def build_inventory(provider) -> Dict[str, Any]:
             "database_type": df.get("databaseType"),
             "action_count": df.get("actionCount"),
             "owner": (df.get("owner") or {}).get("name"),
-            "has_triplet": bool(df.get("_triplet_lineage_id")),
+            "data_domain": domain,
+            "source_systems": srcs,
+            "complexity": cx,
+            "value": classifier.value_tag(domain),
+            "effort": scoring.score_effort(df, has_triplet, cx),
+            "has_triplet": has_triplet,
             "triplet_lineage_id": df.get("_triplet_lineage_id"),
-        })
+            "_output_dataset_ids": out_ids,
+            "_run_cadence": df.get("runCadence"),
+        }
+        a["usage"] = scoring.score_usage(a, usage_ctx)
+        a.pop("_output_dataset_ids", None)
+        a.pop("_run_cadence", None)
+        assets.append(a)
 
     # -- cards + beast modes ---------------------------------------------- #
     for c in cards:
@@ -111,12 +144,14 @@ def build_inventory(provider) -> Dict[str, Any]:
 
     # -- pages ------------------------------------------------------------ #
     for pg in pages:
-        assets.append({
+        a = {
             "id": pg["id"], "asset_type": "page", "name": pg.get("name"),
             "card_count": len(pg.get("cardIds", [])),
             "owner": (pg.get("owner") or {}).get("name"),
             "governance": "n/a",
-        })
+        }
+        a["usage"] = scoring.score_usage(a, usage_ctx)
+        assets.append(a)
 
     # Tag each asset with its migration path + whether it drives the Build step.
     type_meta = {t["key"]: t for t in ASSET_TYPES}

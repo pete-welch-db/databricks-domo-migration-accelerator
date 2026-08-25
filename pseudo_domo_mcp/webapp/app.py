@@ -37,6 +37,10 @@ from ..core.graph import build_graph
 from ..core.bundle import write_bundle
 from ..transpiler import pipeline
 from ..tools import discovery, assessment, mapping, feasibility, plan as planmod
+from ..tools import filters as filtersmod
+from ..tools import rationalize as ratmod
+from ..tools import estimate as estmod
+from ..tools import orchestration as orchmod
 
 app = FastAPI(title="Pseudo-Domo Migration Console")
 
@@ -67,6 +71,12 @@ def inventory(asset_type: str = "", search: str = "") -> Dict[str, Any]:
     dataset, card, beast_mode, page). Powers the Discover step's browse/search/
     filter and the connector remap plan. Records the scan to the state store."""
     inv = discovery.domo_inventory(asset_type=asset_type, search=search)
+    # Facets (distinct filterable values) let the UI build the filter panel from
+    # the real estate; saved dispositions are merged so a disposition filter works.
+    from ..core import filters as _filters, rationalize as _rat
+    saved = {r["asset_id"]: r for r in store.get_store().list("rationalizations")}
+    _rat.merge_dispositions(inv["assets"], saved)
+    inv["facets"] = _filters.facets(inv["assets"])
     if not asset_type and not search:  # a full scan — record it
         try:
             import datetime
@@ -84,6 +94,81 @@ def history() -> Dict[str, Any]:
     s = store.get_store()
     return {"backend": s.backend(), "scans": s.list("scans"),
             "bundles": s.list("bundles")}
+
+
+# ----- Filtered discovery + saved filter sets (= migration waves) ---------- #
+
+@app.post("/api/inventory/filter")
+def inventory_filter(criteria: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
+    """Return the inventory narrowed by multi-criteria filters (see core.filters)."""
+    return filtersmod.filter_inventory(criteria)
+
+
+@app.get("/api/filter-sets")
+def filter_sets() -> Dict[str, Any]:
+    """List saved filter sets (wave candidates) with current matched counts."""
+    return filtersmod.list_filter_sets()
+
+
+@app.post("/api/filter-sets")
+def save_filter_set(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+    """Save a named filter set. Body: {name, criteria, description?}."""
+    return filtersmod.save_filter_set(body.get("name", "Untitled"),
+                                      body.get("criteria", {}),
+                                      body.get("description", ""))
+
+
+@app.get("/api/filter-sets/{filter_set_id}")
+def apply_filter_set(filter_set_id: str) -> Dict[str, Any]:
+    """Apply a saved filter set and return its matching assets."""
+    return filtersmod.apply_saved_filter(filter_set_id)
+
+
+# ----- Rationalization (disposition + target surface per asset) ------------ #
+
+@app.post("/api/rationalize/suggest")
+def rationalize_suggest(criteria: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
+    """Suggested + already-decided dispositions for each asset (optionally filtered)."""
+    return ratmod.suggest_dispositions(criteria or None)
+
+
+@app.get("/api/rationalizations")
+def rationalizations() -> Dict[str, Any]:
+    """All saved dispositions + a rollup by disposition / target surface / wave."""
+    return ratmod.list_rationalizations()
+
+
+@app.post("/api/rationalize")
+def rationalize(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+    """Save one asset's disposition. Body: {asset_id, disposition, target_surface?,
+    rationale?, assigned_wave?, decided_by?}."""
+    return ratmod.rationalize_asset(
+        body.get("asset_id", ""), body.get("disposition", ""),
+        body.get("target_surface", ""), body.get("rationale", ""),
+        int(body.get("assigned_wave") or 0), body.get("decided_by", ""))
+
+
+@app.post("/api/rationalize/bulk")
+def rationalize_bulk(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+    """Apply one disposition to every asset matching a filter (wave-at-once).
+    Body: {criteria, disposition, target_surface?, assigned_wave?, rationale?}."""
+    return ratmod.rationalize_bulk(
+        body.get("criteria", {}), body.get("disposition", ""),
+        body.get("target_surface", ""), int(body.get("assigned_wave") or 0),
+        body.get("rationale", ""), body.get("decided_by", ""))
+
+
+@app.get("/api/estimate")
+def estimate(domo_annual_spend: float = 0.0) -> Dict[str, Any]:
+    """Directional future-state estimate: migration effort (FTE-weeks), target
+    consumption size, and surface split, from assess + saved dispositions."""
+    return estmod.estimate_migration(domo_annual_spend)
+
+
+@app.get("/api/orchestration")
+def orchestration() -> Dict[str, Any]:
+    """Domo scheduling + dataflow-dependency graph, mapped to Databricks Workflows."""
+    return orchmod.orchestration_plan()
 
 
 def _resolve_triplet_dir(lineage_id: str):

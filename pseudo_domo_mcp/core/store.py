@@ -33,7 +33,8 @@ _LOCAL_PATH = os.path.join(_REPO_ROOT, ".pseudo_domo_state.json")
 
 # Every table prefixed to stay tidy in a shared Lakebase (matches common
 # Lakebase conventions of namespacing app tables).
-_TABLES = ("scans", "asset_status", "mappings", "bundles")
+_TABLES = ("scans", "asset_status", "mappings", "bundles",
+           "filter_sets", "rationalizations")
 
 
 class StateStore(ABC):

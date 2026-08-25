@@ -3,9 +3,9 @@ const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const api = async (path, opts) => (await fetch(path, opts)).json();
 
-const PHASES = ["configure", "connect", "discover", "model", "plan", "build"];
+const PHASES = ["configure", "connect", "discover", "rationalize", "model", "plan", "build"];
 const PHASE_LABEL = { configure: "Configure", connect: "Connect", discover: "Discover",
-  model: "Model", plan: "Plan", build: "Build & Deploy" };
+  rationalize: "Rationalize", model: "Model", plan: "Plan", build: "Build & Deploy" };
 
 // Plain-language glossary — surfaced as hover tooltips throughout the UI.
 const TIP = {
@@ -26,6 +26,7 @@ const tip = (k, cls = "") => `data-tip="${esc(TIP[k] || k)}"${cls ? ` class="${c
 const state = {
   phase: "configure", reached: { configure: true }, connected: false,
   config: null, inventory: null, assets: [], filterType: "", search: "",
+  filters: {}, facets: {}, dispositions: {}, ratSearch: "",
   buildAsset: null, draft: null, activeSql: "gold",
 };
 
@@ -54,6 +55,7 @@ function goPhase(p) {
   $$(".phase").forEach(s => s.classList.toggle("hidden", s.dataset.phase !== p));
   renderRail();
   if (p === "discover") onEnterDiscover();
+  if (p === "rationalize") loadRationalize();
   if (p === "model") loadModel();
   if (p === "plan") loadPlan();
   if (p === "build") loadBuild();
@@ -129,6 +131,7 @@ async function runScan() {
   const inv = await api("/api/inventory");
   state.inventory = inv;
   state.assets = inv.assets;
+  state.facets = inv.facets || {};
   if (btn) { btn.disabled = false; btn.textContent = "↻ Re-scan"; }
 
   // summary tiles
@@ -148,6 +151,7 @@ async function runScan() {
     inv.asset_types.map(t => `<button class="tfilter" data-type="${t.key}">${t.label}</button>`).join("");
   $$("#type-filters .tfilter").forEach(b => b.onclick = () => setFilter(b.dataset.type));
 
+  renderFilterBar();
   $("#discover-body").classList.remove("hidden");
   const nextBtn = $("#btn-to-model"); if (nextBtn) nextBtn.disabled = false;
   renderAssets();
@@ -157,13 +161,67 @@ function setFilter(type) {
   $$("#type-filters .tfilter").forEach(b => b.classList.toggle("active", b.dataset.type === type));
   renderAssets();
 }
-function renderAssets() {
-  const list = $("#asset-list");
+
+// Multi-criteria filter bar (governance / domain / value / effort / usage),
+// built from the facets the backend returns. A saved set = a migration wave.
+const FILTER_DIMS = [
+  ["governance", "Governance"], ["data_domain", "Domain"],
+  ["value_band", "Value"], ["complexity_band", "Complexity"],
+  ["effort_band", "Effort"], ["usage_band", "Usage"],
+];
+function renderFilterBar() {
+  const bar = $("#filter-bar");
+  if (!bar) return;
+  const sel = (dim, label) => {
+    const opts = (state.facets[dim] || []);
+    if (!opts.length) return "";
+    return `<label class="fsel"><span>${label}</span>
+      <select data-dim="${dim}"><option value="">any</option>
+        ${opts.map(o => `<option value="${esc(o)}" ${state.filters[dim] === o ? "selected" : ""}>${esc(o)}</option>`).join("")}
+      </select></label>`;
+  };
+  bar.innerHTML = FILTER_DIMS.map(([d, l]) => sel(d, l)).join("")
+    + `<button id="f-clear" class="btn ghost tiny">Clear</button>`
+    + `<button id="f-save" class="btn ghost tiny">★ Save as wave</button>`
+    + `<span id="f-count" class="muted small"></span>`;
+  $$("#filter-bar select").forEach(s => s.onchange = () => {
+    const d = s.dataset.dim; if (s.value) state.filters[d] = s.value; else delete state.filters[d];
+    renderAssets();
+  });
+  $("#f-clear").onclick = () => { state.filters = {}; renderFilterBar(); renderAssets(); };
+  $("#f-save").onclick = saveFilterSet;
+}
+function matchFilters(a) {
+  const f = state.filters;
+  if (f.governance && a.governance !== f.governance) return false;
+  if (f.data_domain && a.data_domain !== f.data_domain) return false;
+  if (f.value_band && (a.value || {}).band !== f.value_band) return false;
+  if (f.complexity_band && (a.complexity || {}).band !== f.complexity_band) return false;
+  if (f.effort_band && (a.effort || {}).band !== f.effort_band) return false;
+  if (f.usage_band && (a.usage || {}).band !== f.usage_band) return false;
+  return true;
+}
+function filteredAssets() {
   const s = state.search.toLowerCase();
   let items = state.assets;
   if (state.filterType) items = items.filter(a => a.asset_type === state.filterType);
   if (s) items = items.filter(a => (a.name || "").toLowerCase().includes(s));
+  items = items.filter(matchFilters);
+  return items;
+}
+function renderAssets() {
+  const list = $("#asset-list");
+  const items = filteredAssets();
+  const c = $("#f-count"); if (c) c.textContent = `${items.length} of ${state.assets.length} assets`;
   list.innerHTML = items.map(assetCard).join("") || `<div class="loading">No matching assets.</div>`;
+}
+async function saveFilterSet() {
+  const name = prompt("Name this wave / filter set:", "Wave — " +
+    (state.filters.data_domain || state.filters.governance || "custom"));
+  if (!name) return;
+  await api("/api/filter-sets", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, criteria: { ...state.filters, asset_type: state.filterType || undefined } }) });
+  const b = $("#f-save"); b.textContent = "✓ Saved"; setTimeout(() => b.textContent = "★ Save as wave", 1500);
 }
 function assetCard(a) {
   const gov = a.governance && a.governance !== "n/a"
@@ -179,6 +237,13 @@ function assetCard(a) {
   } else if (a.asset_type === "card") {
     extra = `<div class="muted small">${a.card_type} · ${a.beast_mode_count} Beast Modes</div>`;
   }
+  // Assess scores (Profiler/Analyzer) — value / complexity / effort / usage.
+  const sc = [];
+  if (a.value && a.value.band) sc.push(`<span class="chip sc val-${a.value.band}" ${tip("value")}>val ${a.value.band}</span>`);
+  if (a.complexity && a.complexity.band) sc.push(`<span class="chip sc cx-${a.complexity.band}" ${tip("complexity")}>cx ${a.complexity.band}</span>`);
+  if (a.effort && a.effort.effort_1_5) sc.push(`<span class="chip sc ef-${a.effort.band}">effort ${a.effort.effort_1_5}/5</span>`);
+  if (a.usage && typeof a.usage.usage_score === "number") sc.push(`<span class="chip sc us-${a.usage.band}">use ${a.usage.usage_score}</span>`);
+  const scores = sc.length ? `<div class="scores">${sc.join("")}</div>` : "";
   const sig = (a.governance_signals || []).length
     ? `<details class="why"><summary>why ${a.governance}?</summary><ul>${a.governance_signals.map(x => `<li>${esc(x)}</li>`).join("")}</ul></details>` : "";
   const path = a.migration_path_label
@@ -186,11 +251,111 @@ function assetCard(a) {
   return `<div class="asset-card">
     <div class="ac-head"><span class="atype at-${a.asset_type}" ${tip(a.asset_type)}>${typeLabel(a.asset_type)}</span>
       <span class="ac-name">${esc(a.name || a.id)}</span>${gov}</div>
-    ${extra}${path}${sig}</div>`;
+    ${extra}${scores}${path}${sig}</div>`;
 }
 const TYPE_LABEL = { connector: "Connector", magic_etl: "Magic ETL", sql_dataflow: "SQL DataFlow",
   dataset: "DataSet", card: "Card", beast_mode: "Beast Mode", page: "Page" };
 const typeLabel = t => TYPE_LABEL[t] || t;
+
+// ------------------------------------------------------------ rationalize --
+const DISPOSITIONS = ["Retire", "Repoint", "Rebuild", "Elevate", "Consolidate"];
+const SURFACES = [["ai_bi_genie", "AI/BI + Genie"], ["genie_app_builder", "Genie App Builder"],
+  ["sigma_input_tables", "Sigma Input Tables"], ["apps_lakebase", "Apps + Lakebase"], ["none", "None (retire)"]];
+
+async function loadRationalize() {
+  const wrap = $("#rat-table-wrap");
+  wrap.innerHTML = `<div class="loading">Loading suggestions…</div>`;
+  const sug = await api("/api/rationalize/suggest", { method: "POST",
+    headers: { "Content-Type": "application/json" }, body: "{}" });
+  state.ratRows = sug.rows || [];
+  renderRatBulk();
+  renderRatTable();
+  await refreshRatRollup();
+}
+function ratVisible() {
+  const s = (state.ratSearch || "").toLowerCase();
+  return state.ratRows.filter(r => !s || (r.name || "").toLowerCase().includes(s));
+}
+function renderRatTable() {
+  const rows = ratVisible().map(r => {
+    const cur = r.decided || r.suggested || {};
+    const disp = cur.disposition || "";
+    const surf = cur.target_surface || "";
+    const dsel = `<select class="rat-disp" data-id="${esc(r.asset_id)}"><option value="">—</option>` +
+      DISPOSITIONS.map(d => `<option value="${d}" ${d === disp ? "selected" : ""}>${d}</option>`).join("") + `</select>`;
+    const ssel = `<select class="rat-surf" data-id="${esc(r.asset_id)}"><option value="">—</option>` +
+      SURFACES.map(([k, l]) => `<option value="${k}" ${k === surf ? "selected" : ""}>${l}</option>`).join("") + `</select>`;
+    const badge = r.decided ? `<span class="chip gov-governed">saved</span>` : `<span class="chip sc">suggested</span>`;
+    const scores = `${r.value_band ? `<span class="chip sc val-${r.value_band}">val ${r.value_band}</span>` : ""}
+      ${r.effort_1_5 ? `<span class="chip sc">eff ${r.effort_1_5}/5</span>` : ""}
+      ${typeof r.usage_score === "number" ? `<span class="chip sc">use ${r.usage_score}</span>` : ""}`;
+    return `<tr>
+      <td><div class="rat-name">${esc(r.name || r.asset_id)}</div>
+        <div class="muted small">${typeLabel(r.asset_type)}${r.governance && r.governance !== "n/a" ? " · " + r.governance : ""}</div></td>
+      <td class="rat-scores">${scores}</td>
+      <td>${dsel}</td>
+      <td>${ssel}</td>
+      <td><input class="rat-rat" data-id="${esc(r.asset_id)}" type="text" value="${esc(cur.rationale || "")}" placeholder="rationale…" /></td>
+      <td>${badge} <button class="btn ghost tiny rat-save" data-id="${esc(r.asset_id)}">Save</button></td>
+    </tr>`;
+  }).join("") || `<tr><td colspan="6" class="loading">No assets.</td></tr>`;
+  $("#rat-table-wrap").innerHTML = `<table class="rat-table">
+    <thead><tr><th>Asset</th><th>Signals</th><th>Disposition</th><th>Target surface</th><th>Rationale</th><th></th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
+  $$(".rat-save").forEach(b => b.onclick = () => saveDisposition(b.dataset.id));
+}
+async function saveDisposition(id) {
+  const row = $(`.rat-save[data-id="${CSS.escape(id)}"]`).closest("tr");
+  const disposition = $(".rat-disp", row).value;
+  if (!disposition) { alert("Pick a disposition first."); return; }
+  await api("/api/rationalize", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ asset_id: id, disposition,
+      target_surface: $(".rat-surf", row).value, rationale: $(".rat-rat", row).value }) });
+  const r = state.ratRows.find(x => x.asset_id === id);
+  if (r) r.decided = { disposition, target_surface: $(".rat-surf", row).value, rationale: $(".rat-rat", row).value };
+  renderRatTable(); refreshRatRollup();
+}
+function renderRatBulk() {
+  $("#rat-bulk").innerHTML =
+    `<span class="muted small">Bulk-apply to shown:</span>
+     <select id="rat-bulk-disp"><option value="">disposition…</option>${DISPOSITIONS.map(d => `<option>${d}</option>`).join("")}</select>
+     <button id="rat-bulk-go" class="btn ghost tiny">Apply</button>`;
+  $("#rat-bulk-go").onclick = async () => {
+    const d = $("#rat-bulk-disp").value; if (!d) return;
+    const vis = ratVisible();
+    if (!confirm(`Set ${vis.length} shown asset(s) to "${d}"?`)) return;
+    for (const r of vis) {
+      await api("/api/rationalize", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ asset_id: r.asset_id, disposition: d,
+          target_surface: (r.suggested || {}).target_surface || "", rationale: "bulk" }) });
+      r.decided = { disposition: d, target_surface: (r.suggested || {}).target_surface || "", rationale: "bulk" };
+    }
+    renderRatTable(); refreshRatRollup();
+  };
+}
+async function refreshRatRollup() {
+  const data = await api("/api/rationalizations");
+  const roll = data.rollup || {};
+  const disp = roll.by_disposition || {}; const surf = roll.by_target_surface || {};
+  const chip = (k, v) => `<span class="chip sc">${esc(k)}: <b>${v}</b></span>`;
+  $("#rat-rollup").innerHTML =
+    `<div class="rr-line"><b>${roll.total || 0}</b> decided ·
+      ${Object.entries(disp).map(([k, v]) => chip(k, v)).join(" ") || "<span class='muted small'>none yet</span>"}</div>
+     ${Object.keys(surf).length ? `<div class="rr-line muted small">surfaces: ${Object.entries(surf).map(([k, v]) => chip(k, v)).join(" ")}</div>` : ""}
+     <div id="rr-estimate"></div>`;
+}
+async function showEstimate() {
+  const spend = prompt("Current Domo annual spend to frame savings (optional, $):", "");
+  const q = spend ? `?domo_annual_spend=${encodeURIComponent(spend.replace(/[^0-9.]/g, ""))}` : "";
+  const e = await api(`/api/estimate${q}`);
+  const me = e.migration_effort || {};
+  $("#rr-estimate").innerHTML = `<div class="rr-est">
+    <b>Future-state estimate (directional)</b>
+    <div>Migration effort: <b>${me.est_fte_weeks}</b> FTE-weeks across <b>${e.active_assets}</b> active assets (${me.total_effort_points} effort pts)</div>
+    <div>Target consumption: <b>${(e.target_consumption || {}).band}</b> — ${esc((e.target_consumption || {}).rationale || "")}</div>
+    ${e.savings ? `<div class="muted small">${esc(e.savings.framing)}</div>` : ""}
+    <div class="muted small">${esc(e.note || "")}</div></div>`;
+}
 
 // ------------------------------------------------------------ model -------
 async function loadModel() {
@@ -640,6 +805,8 @@ $("#btn-connect").onclick = doConnect;
 $("#btn-scan").onclick = runScan;
 $("#btn-create").onclick = doCreate;
 $("#search").oninput = e => { state.search = e.target.value; renderAssets(); };
+$("#rat-search").oninput = e => { state.ratSearch = e.target.value; renderRatTable(); };
+$("#btn-estimate").onclick = showEstimate;
 $("#btn-config").onclick = openConfig;
 $("#btn-upload").onclick = openUpload;
 $("#up-close").onclick = () => $("#upload-modal").classList.add("hidden");

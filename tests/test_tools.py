@@ -162,3 +162,69 @@ def test_live_provider_normalizes_and_degrades():
     ds = p.list_datasets()
     assert ds[0]["id"] == "d1" and ds[0]["_source_system"] == "Domo (derived)"
     assert set(ds[0]) >= {"name", "rows", "columns", "owner", "_source_system"}
+
+
+# ----- Assess enhancements: effort + usage scoring (Profiler/Analyzer) ----- #
+
+def test_inventory_carries_effort_and_usage_bounded():
+    from pseudo_domo_mcp.tools import discovery
+    dfs = [a for a in discovery.domo_inventory()["assets"]
+           if a["asset_type"] in ("magic_etl", "sql_dataflow")]
+    assert dfs
+    for a in dfs:
+        assert 1 <= a["effort"]["effort_1_5"] <= 5
+        assert a["effort"]["band"] in ("LOW", "MEDIUM", "HIGH")
+        assert 0 <= a["usage"]["usage_score"] <= 100
+        assert a["usage"]["is_proxy"] is True
+    assert any(a["effort"]["band"] == "HIGH" for a in dfs)  # writeback/SQL flow
+
+
+# ----- Discovery filters ---------------------------------------------------- #
+
+def test_apply_filter_narrows_and_facets():
+    from pseudo_domo_mcp.core import filters
+    from pseudo_domo_mcp.tools import discovery
+    assets = discovery.domo_inventory()["assets"]
+    got = filters.apply_filter(
+        {"governance": "governed", "asset_type": ["magic_etl", "sql_dataflow"]}, assets)
+    assert got and all(a["governance"] == "governed" for a in got)
+    assert all(a["asset_type"] in ("magic_etl", "sql_dataflow") for a in got)
+    assert len(got) < len(assets)
+    f = filters.facets(assets)
+    assert "governed" in f["governance"] and f["data_domain"]
+
+
+# ----- Rationalization suggestions ----------------------------------------- #
+
+def test_suggest_disposition_is_sane():
+    from pseudo_domo_mcp.core import rationalize
+    from pseudo_domo_mcp.tools import discovery
+    by_name = {a["name"]: a for a in discovery.domo_inventory()["assets"]}
+    cust = next(a for n, a in by_name.items() if "Customer 360" in n)
+    assert rationalize.suggest_disposition(cust)["disposition"] == "Elevate"
+    capex = next(a for n, a in by_name.items() if "CapEx" in n)  # low usage + writeback
+    assert rationalize.suggest_disposition(capex)["disposition"] in rationalize.DISPOSITIONS
+
+
+# ----- Future-state estimation --------------------------------------------- #
+
+def test_estimate_rolls_up_effort():
+    from pseudo_domo_mcp.tools import estimate
+    e = estimate.estimate_migration(1_200_000)
+    assert e["active_assets"] >= 1
+    assert e["migration_effort"]["est_fte_weeks"] > 0
+    assert e["target_consumption"]["band"] in ("SMALL", "MEDIUM", "LARGE")
+    assert e["savings"]["domo_annual_spend"] == 1_200_000
+
+
+# ----- Orchestration (schedules + dependency graph → Workflows) ------------ #
+
+def test_orchestration_graph_and_mapping():
+    from pseudo_domo_mcp.tools import orchestration
+    o = orchestration.orchestration_plan()
+    assert o["summary"]["dataflows"] >= 1
+    assert "by_cadence" in o["summary"]
+    # every dependency edge references real dataflows via a dataset
+    for e in o["dependencies"]:
+        assert e["from"] and e["to"] and e["via_dataset"]
+    assert "Workflows" in o["databricks_mapping"]["target"]

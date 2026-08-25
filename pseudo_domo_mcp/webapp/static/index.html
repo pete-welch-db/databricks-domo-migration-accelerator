@@ -83,11 +83,30 @@
           <input id="search" type="text" class="search" placeholder="Search assets by name…" />
           <div id="type-filters" class="type-filters"></div>
         </div>
+        <div id="filter-bar" class="filter-bar"></div>
         <div id="asset-list" class="asset-list"></div>
       </div>
       <div class="phase-actions">
         <button class="btn ghost" data-prev>← Back</button>
-        <button class="btn primary" data-next id="btn-to-model" disabled>Model →</button>
+        <button class="btn primary" data-next id="btn-to-model" disabled>Rationalize →</button>
+      </div>
+    </section>
+
+    <!-- ============ PHASE: RATIONALIZE ============ -->
+    <section class="phase hidden" data-phase="rationalize">
+      <div class="phase-head">
+        <div><h1>Rationalize</h1><p class="muted">Decide what happens to each asset before you migrate anything — retire the dead weight, repoint the live, elevate the high-value. Suggestions come from the assess signals; edit and save.</p></div>
+        <button id="btn-estimate" class="btn ghost">∑ Estimate future state</button>
+      </div>
+      <div id="rat-rollup" class="rat-rollup"></div>
+      <div class="toolbar">
+        <input id="rat-search" type="text" class="search" placeholder="Filter the rationalization list…" />
+        <div id="rat-bulk" class="rat-bulk"></div>
+      </div>
+      <div id="rat-table-wrap"><div class="loading">Loading…</div></div>
+      <div class="phase-actions">
+        <button class="btn ghost" data-prev>← Back</button>
+        <button class="btn primary" data-next>Model →</button>
       </div>
     </section>
 
