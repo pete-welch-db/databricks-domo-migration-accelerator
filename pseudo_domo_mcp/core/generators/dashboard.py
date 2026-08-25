@@ -11,16 +11,24 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, List
 
-_NUMERIC = {"LONG", "INTEGER", "INT", "DOUBLE", "DECIMAL", "FLOAT", "NUMBER"}
-
 
 def render(gold_view_fqn: str, columns: List[Dict[str, Any]], title: str) -> str:
     """columns: [{"name": .., "domo_type": ..}, ...]. Returns .lvdash.json text."""
     fields = [{"name": c["name"], "expression": f"`{c['name']}`"} for c in columns]
-    numeric = next((c["name"] for c in columns
-                    if str(c.get("domo_type", "")).upper() in _NUMERIC), None)
 
     widgets = [{
+        # Row count — COUNT(*) needs no numeric column, so always include it.
+        "widget": {
+            "name": "row_counter",
+            "queries": [{"name": "c", "query": {
+                "datasetName": "gold",
+                "fields": [{"name": "rows", "expression": "COUNT(*)"}],
+                "disaggregated": False}}],
+            "spec": {"version": 2, "widgetType": "counter",
+                     "encodings": {"value": {"fieldName": "rows", "displayName": "Rows"}}},
+        },
+        "position": {"x": 0, "y": 0, "width": 2, "height": 1},
+    }, {
         "widget": {
             "name": "gold_table",
             "queries": [{"name": "main", "query": {
@@ -30,19 +38,6 @@ def render(gold_view_fqn: str, columns: List[Dict[str, Any]], title: str) -> str
         },
         "position": {"x": 0, "y": 1, "width": 6, "height": 6},
     }]
-    if numeric:
-        widgets.append({
-            "widget": {
-                "name": "row_counter",
-                "queries": [{"name": "c", "query": {
-                    "datasetName": "gold",
-                    "fields": [{"name": "rows", "expression": "COUNT(*)"}],
-                    "disaggregated": False}}],
-                "spec": {"version": 2, "widgetType": "counter",
-                         "encodings": {"value": {"fieldName": "rows", "displayName": "Rows"}}},
-            },
-            "position": {"x": 0, "y": 0, "width": 2, "height": 1},
-        })
 
     dashboard = {
         "datasets": [{

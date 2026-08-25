@@ -47,8 +47,10 @@ def render(orchestration: Dict[str, Any], job_name: str = "domo_migration_orches
     for df_id, s in dataflows.items():
         task = {
             "task_key": keys[df_id],
-            # Placeholder run — point at the migrated pipeline for this dataflow.
-            "notebook_task": {"notebook_path": f"../src/pipeline/{keys[df_id]}"},
+            # Orchestrate the migrated Lakeflow pipeline for this dataflow. Fill
+            # in the pipeline_id once each pipeline is created (bundle-created
+            # pipelines can be referenced as ${resources.pipelines.<name>.id}).
+            "pipeline_task": {"pipeline_id": f"<pipeline-id-for-{keys[df_id]}>"},
         }
         deps = [keys[d] for d in depends.get(df_id, []) if d in keys]
         if deps:

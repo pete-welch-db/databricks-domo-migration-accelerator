@@ -18,13 +18,18 @@ def render(gold_view_fqn: str, columns: List[Dict[str, Any]], title: str,
     col_names = [c["name"] for c in columns]
     tables = sorted({gold_view_fqn, *(metric_view_fqns or [])})
 
+    def _is_time(c):
+        cl = c.lower()
+        return (cl in {"date", "ts", "time", "timestamp", "day", "month", "year"}
+                or cl.endswith(("_ts", "_date", "_at", "_time")) or "date" in cl)
+
     sample = [f"What is the total number of rows in {title}?"]
     if col_names:
         sample.append(f"Break down {title} by {col_names[0]}.")
     if len(col_names) > 1:
-        sample.append(f"Show {col_names[1]} over time." if any(
-            "date" in c.lower() or "ts" in c.lower() for c in col_names)
-            else f"Which {col_names[0]} has the highest {col_names[-1]}?")
+        time_col = next((c for c in col_names if _is_time(c)), None)
+        sample.append(f"Show {title} trend over {time_col}." if time_col
+                      else f"Which {col_names[0]} has the highest {col_names[-1]}?")
 
     space = {
         "display_name": f"{title} — Genie",

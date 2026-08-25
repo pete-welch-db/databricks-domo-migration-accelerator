@@ -83,8 +83,13 @@ def rationalize_bulk(criteria: Dict[str, Any], disposition: str,
     if disposition not in rat.DISPOSITIONS:
         return {"error": f"disposition must be one of {rat.DISPOSITIONS}"}
     assets = filtermod.apply_filter(criteria or {}, discovery.domo_inventory()["assets"])
-    saved = [rationalize_asset(a["id"], disposition, target_surface, rationale,
-                               assigned_wave, decided_by)["record"] for a in assets]
+    saved = []
+    for a in assets:
+        # When no surface is given, keep each asset's suggested surface rather
+        # than blanking it (bulk applies the disposition, not a single surface).
+        surface = target_surface or rat.suggest_disposition(a).get("target_surface", "")
+        saved.append(rationalize_asset(a["id"], disposition, surface, rationale,
+                                       assigned_wave, decided_by)["record"])
     return {"saved": len(saved), "asset_ids": [r["asset_id"] for r in saved]}
 
 

@@ -243,6 +243,20 @@ def test_generators_emit_valid_artifacts():
     assert any("lakeflow_connect" in f for f in files) and any("connection.sql" in f for f in files)
 
 
+def test_bulk_apply_preserves_suggested_surface():
+    import json as _json
+    from pseudo_domo_mcp.tools import rationalize
+    from pseudo_domo_mcp.core import store
+    rationalize.rationalize_bulk({"asset_type": ["magic_etl", "sql_dataflow"]}, "Rebuild")
+    surfaces = {r["target_surface"] for r in store.get_store().list("rationalizations")}
+    assert surfaces - {"none", ""}  # not blanked — suggested surfaces carried through
+    try:  # cleanup
+        d = _json.load(open(store._LOCAL_PATH)); d["rationalizations"] = {}
+        _json.dump(d, open(store._LOCAL_PATH, "w"), indent=2)
+    except Exception:
+        pass
+
+
 def test_list_build_targets():
     from pseudo_domo_mcp.tools import generate
     bt = generate.list_build_targets()

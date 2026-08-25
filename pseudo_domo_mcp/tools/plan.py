@@ -142,10 +142,13 @@ def _bucket_waves(ranked: List[Dict[str, Any]],
                 by_wave.setdefault(int(w), []).append(entry(a))
             else:
                 unassigned.append(a)
-        out = [{"wave": w, "theme": f"Wave {w} — assigned in rationalization", "items": by_wave[w]}
+        # Human-assigned waves first (in their chosen order), then the
+        # auto-bucketed remainder; renumber contiguously so there are no gaps.
+        out = [{"wave": None, "theme": "Assigned in rationalization", "items": by_wave[w]}
                for w in sorted(by_wave)]
-        if unassigned:
-            out += auto_waves(unassigned, start_wave=(max(by_wave) + 1))
+        out += auto_waves(unassigned, start_wave=1)
+        for i, wv in enumerate(out, 1):
+            wv["wave"] = i
         return out
 
     return auto_waves(ranked, start_wave=1)
