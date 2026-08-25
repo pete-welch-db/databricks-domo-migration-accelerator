@@ -121,6 +121,14 @@ def suggest_disposition(asset: Dict[str, Any]) -> Dict[str, str]:
                    "Low usage and low value — retire rather than migrate.")
 
     if atype in ("magic_etl", "sql_dataflow"):
+        # Duplicate "copy of copy": consolidate into the canonical, or retire if
+        # it's an unused copy. (Suggestion only — the human confirms.)
+        if (asset.get("dedup") or {}).get("is_duplicate"):
+            if usage_band == "LOW":
+                return out("Retire", "none",
+                           "Unused duplicate copy — retire; the canonical flow is kept.")
+            return out("Consolidate", "etl_pipeline",
+                       "Duplicate of the canonical flow — consolidate into it, don't re-migrate.")
         if _has_writeback(asset):
             return out("Rebuild", "apps_lakebase",
                        "Writeback pipeline — re-platform to Databricks Apps + Lakebase.")

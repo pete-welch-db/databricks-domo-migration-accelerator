@@ -16,8 +16,8 @@ from pseudo_domo_mcp.tools import (
 def test_discover_summary():
     s = discovery.domo_discover("summary")
     assert s["counts"]["datasets"] == 9
-    assert s["counts"]["dataflows"] == 5
-    assert s["dataflow_types"]["MAGIC"] == 4
+    assert s["counts"]["dataflows"] == 7
+    assert s["dataflow_types"]["MAGIC"] == 6  # 4 + 2 duplicate "copy" flows
     assert s["dataflow_types"]["SQL"] == 1
     # governed vs shadow split present
     assert s["governance_split"]["dataflows"]["governed"] >= 1
@@ -175,7 +175,8 @@ def test_inventory_carries_effort_and_usage_bounded():
         assert 1 <= a["effort"]["effort_1_5"] <= 5
         assert a["effort"]["band"] in ("LOW", "MEDIUM", "HIGH")
         assert 0 <= a["usage"]["usage_score"] <= 100
-        assert a["usage"]["is_proxy"] is True
+        # fixtures ship an activity log + run history → usage is MEASURED
+        assert a["usage"]["is_proxy"] is False
     assert any(a["effort"]["band"] == "HIGH" for a in dfs)  # writeback/SQL flow
 
 
@@ -241,6 +242,37 @@ def test_generators_emit_valid_artifacts():
          "connector": "Lakeflow Connect — Salesforce (managed)", "pattern": "Managed connector"}},
         "cat", "sch")
     assert any("lakeflow_connect" in f for f in files) and any("connection.sql" in f for f in files)
+
+
+def test_duplicate_detection_and_measured_usage():
+    from pseudo_domo_mcp.tools import discovery
+    inv = discovery.domo_inventory()
+    # the three Customer 360 flows (identical inputs) form one cluster
+    clusters = inv["duplicate_clusters"]
+    assert clusters and any(len(c["member_ids"]) == 3 for c in clusters)
+    by_name = {a["name"]: a for a in inv["assets"]}
+    canon = by_name["Customer 360 - Aftermarket Master"]
+    copy = by_name["Customer 360 - Aftermarket Master (copy)"]
+    assert canon["dedup"]["is_duplicate"] is False
+    assert copy["dedup"]["is_duplicate"] is True and copy["dedup"]["canonical_id"] == canon["id"]
+    # usage is measured (fixtures ship activity + runs), and the used canonical
+    # scores far above the unused copy → higher migration priority.
+    assert canon["usage"]["is_proxy"] is False
+    assert canon["priority"]["score"] > copy["priority"]["score"]
+
+
+def test_dedup_and_unused_drive_retire_consolidate():
+    from pseudo_domo_mcp.core import rationalize
+    from pseudo_domo_mcp.tools import discovery
+    by_name = {a["name"]: a for a in discovery.domo_inventory()["assets"]}
+    # unused duplicate copy → Retire
+    assert rationalize.suggest_disposition(
+        by_name["Customer 360 - Aftermarket Master (copy)"])["disposition"] == "Retire"
+    # a used duplicate would Consolidate (synthetic: dup + real usage)
+    used_dup = {"asset_type": "magic_etl", "usage": {"band": "HIGH", "usage_score": 80},
+                "value": {"band": "MEDIUM"}, "dedup": {"is_duplicate": True}}
+    s = rationalize.suggest_disposition(used_dup)
+    assert s["disposition"] == "Consolidate"
 
 
 def test_bulk_apply_preserves_suggested_surface():

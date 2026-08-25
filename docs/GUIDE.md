@@ -51,13 +51,15 @@ loaded.
 ### Discover  *(Assess — Profiler/Analyzer)*
 The full typed inventory: **connector · magic_etl · sql_dataflow · dataset ·
 card · beast_mode · page**. Each asset carries inferred **governance** (with a
-confidence % and the "why" signals) and the assess scores — **value,
-complexity, effort (1-5), usage (0-100 proxy)**.
+confidence % and "why" signals) and the assess scores — **value, complexity,
+effort (1-5), usage (measured from the Activity Log + run history when
+available, else a proxy), a duplicate flag, and a composite migration-priority**.
 
 **Filter it.** Beyond type + search, the filter bar narrows by governance,
-domain, value, complexity, effort, and usage — built from the estate's own
-facets. **★ Save as wave** persists the current filter as a named filter set
-(a migration-wave candidate).
+domain, value, complexity, effort, and usage — plus one-click **⧉ Duplicates**
+and **Retire candidates** toggles to isolate the copy-of-a-copy / low-usage pile.
+**★ Save as wave** persists the current filter as a named filter set (a
+migration-wave candidate).
 
 ### Rationalize  *(the decision layer)*
 The heart of the tool. Each asset gets a **disposition** and a **target

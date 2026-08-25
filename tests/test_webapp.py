@@ -23,7 +23,7 @@ def test_estate():
     r = client.get("/api/estate")
     assert r.status_code == 200
     data = r.json()
-    assert len(data["dataflows"]) == 5
+    assert len(data["dataflows"]) == 7
     # each dataflow carries the assessment fields the UI chips need
     df = data["dataflows"][0]
     for k in ("value", "complexity", "governance", "data_domain", "database_type"):

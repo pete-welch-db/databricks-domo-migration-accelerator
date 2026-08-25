@@ -181,6 +181,8 @@ function renderFilterBar() {
       </select></label>`;
   };
   bar.innerHTML = FILTER_DIMS.map(([d, l]) => sel(d, l)).join("")
+    + `<button id="f-dups" class="btn ghost tiny ${state.filters.dupOnly ? "on" : ""}">⧉ Duplicates</button>`
+    + `<button id="f-retire" class="btn ghost tiny ${state.filters.retireOnly ? "on" : ""}">Retire candidates</button>`
     + `<button id="f-clear" class="btn ghost tiny">Clear</button>`
     + `<button id="f-save" class="btn ghost tiny">★ Save as wave</button>`
     + `<span id="f-count" class="muted small"></span>`;
@@ -188,6 +190,8 @@ function renderFilterBar() {
     const d = s.dataset.dim; if (s.value) state.filters[d] = s.value; else delete state.filters[d];
     renderAssets();
   });
+  $("#f-dups").onclick = () => { state.filters.dupOnly = !state.filters.dupOnly; renderFilterBar(); renderAssets(); };
+  $("#f-retire").onclick = () => { state.filters.retireOnly = !state.filters.retireOnly; renderFilterBar(); renderAssets(); };
   $("#f-clear").onclick = () => { state.filters = {}; renderFilterBar(); renderAssets(); };
   $("#f-save").onclick = saveFilterSet;
 }
@@ -199,6 +203,11 @@ function matchFilters(a) {
   if (f.complexity_band && (a.complexity || {}).band !== f.complexity_band) return false;
   if (f.effort_band && (a.effort || {}).band !== f.effort_band) return false;
   if (f.usage_band && (a.usage || {}).band !== f.usage_band) return false;
+  if (f.dupOnly && !((a.dedup || {}).is_duplicate)) return false;
+  if (f.retireOnly) {
+    const low = (a.priority || {}).band === "LOW" || (a.usage || {}).band === "LOW";
+    if (!low && !((a.dedup || {}).is_duplicate)) return false;
+  }
   return true;
 }
 function filteredAssets() {
@@ -242,7 +251,10 @@ function assetCard(a) {
   if (a.value && a.value.band) sc.push(`<span class="chip sc val-${a.value.band}" ${tip("value")}>val ${a.value.band}</span>`);
   if (a.complexity && a.complexity.band) sc.push(`<span class="chip sc cx-${a.complexity.band}" ${tip("complexity")}>cx ${a.complexity.band}</span>`);
   if (a.effort && a.effort.effort_1_5) sc.push(`<span class="chip sc ef-${a.effort.band}">effort ${a.effort.effort_1_5}/5</span>`);
-  if (a.usage && typeof a.usage.usage_score === "number") sc.push(`<span class="chip sc us-${a.usage.band}">use ${a.usage.usage_score}</span>`);
+  if (a.usage && typeof a.usage.usage_score === "number")
+    sc.push(`<span class="chip sc us-${a.usage.band}" data-tip="${a.usage.is_proxy ? "Estimated (proxy)" : "Measured from activity + run history"}: ${esc((a.usage.drivers || []).join("; "))}">use ${a.usage.usage_score}${a.usage.is_proxy ? "~" : ""}</span>`);
+  if (a.priority && typeof a.priority.score === "number") sc.push(`<span class="chip sc pr-${a.priority.band}">pri ${a.priority.score}</span>`);
+  if (a.dedup && a.dedup.is_duplicate) sc.push(`<span class="chip sc dup">⧉ duplicate</span>`);
   const scores = sc.length ? `<div class="scores">${sc.join("")}</div>` : "";
   const sig = (a.governance_signals || []).length
     ? `<details class="why"><summary>why ${a.governance}?</summary><ul>${a.governance_signals.map(x => `<li>${esc(x)}</li>`).join("")}</ul></details>` : "";
@@ -287,9 +299,10 @@ function renderRatTable() {
     const ssel = `<select class="rat-surf" data-id="${esc(r.asset_id)}"><option value="">—</option>` +
       surfOpts.map(o => `<option value="${o.key}" ${o.key === surf ? "selected" : ""}>${esc(o.label)}</option>`).join("") + `</select>`;
     const badge = r.decided ? `<span class="chip gov-governed">saved</span>` : `<span class="chip sc">suggested</span>`;
-    const scores = `${r.value_band ? `<span class="chip sc val-${r.value_band}">val ${r.value_band}</span>` : ""}
-      ${r.effort_1_5 ? `<span class="chip sc">eff ${r.effort_1_5}/5</span>` : ""}
-      ${typeof r.usage_score === "number" ? `<span class="chip sc">use ${r.usage_score}</span>` : ""}`;
+    const scores = `${typeof r.priority === "number" ? `<span class="chip sc">pri ${r.priority}</span>` : ""}
+      ${r.value_band ? `<span class="chip sc val-${r.value_band}">val ${r.value_band}</span>` : ""}
+      ${typeof r.usage_score === "number" ? `<span class="chip sc" ${r.usage_drivers && r.usage_drivers.length ? `data-tip="${r.usage_measured ? "measured" : "estimated"}: ${esc(r.usage_drivers.join("; "))}"` : ""}>use ${r.usage_score}${r.usage_measured ? "" : "~"}</span>` : ""}
+      ${(r.dedup || {}).is_duplicate ? `<span class="chip sc dup">⧉ dup</span>` : ""}`;
     return `<tr>
       <td><div class="rat-name">${esc(r.name || r.asset_id)}</div>
         <div class="muted small">${typeLabel(r.asset_type)}${r.governance && r.governance !== "n/a" ? " · " + r.governance : ""}</div></td>

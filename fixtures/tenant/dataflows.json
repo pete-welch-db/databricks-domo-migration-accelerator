@@ -1,14 +1,24 @@
 {
-  "_note": "Synthetic Domo DataFlow census (fictional 'Northwind Manufacturing'). Domo's PUBLIC API does NOT expose Magic ETL internals or SQL DataFlow bodies — only a live export / private API does. This census therefore carries the discovery-level metadata a migration inventory needs (id, name, databaseType, input/output dataset ids, action count, owner, run cadence) and flags which lineages have a full triplet available under fixtures/lineages/. Real Domo estates are a MIX of MAGIC + SQL DataFlows — modeled here.",
+  "_note": "Synthetic Domo DataFlow census (fictional 'Northwind Manufacturing'). Domo's PUBLIC API does NOT expose Magic ETL internals or SQL DataFlow bodies \u2014 only a live export / private API does. This census therefore carries the discovery-level metadata a migration inventory needs (id, name, databaseType, input/output dataset ids, action count, owner, run cadence) and flags which lineages have a full triplet available under fixtures/lineages/. Real Domo estates are a MIX of MAGIC + SQL DataFlows \u2014 modeled here.",
   "dataflows": [
     {
       "id": "df-customer360-magic-0001",
       "name": "Customer 360 - Aftermarket Master",
       "databaseType": "MAGIC",
-      "inputDatasetIds": ["ds-warranty-claims-0001", "ds-service-tickets-002", "ds-parts-orders-0003", "ds-account-master-004"],
-      "outputDatasetIds": ["ds-customer360-out-9999"],
+      "inputDatasetIds": [
+        "ds-warranty-claims-0001",
+        "ds-service-tickets-002",
+        "ds-parts-orders-0003",
+        "ds-account-master-004"
+      ],
+      "outputDatasetIds": [
+        "ds-customer360-out-9999"
+      ],
       "actionCount": 15,
-      "owner": {"id": "u-101", "name": "Data Platform Team"},
+      "owner": {
+        "id": "u-101",
+        "name": "Data Platform Team"
+      },
       "runCadence": "4x/day",
       "_governance": "governed",
       "_triplet_lineage_id": "customer360"
@@ -17,10 +27,17 @@
       "id": "df-plantoee-sql-0002",
       "name": "Plant OEE Rollup (SQL DataFlow)",
       "databaseType": "SQL",
-      "inputDatasetIds": ["ds-plant-oee-101"],
-      "outputDatasetIds": ["ds-plant-oee-rollup-102"],
+      "inputDatasetIds": [
+        "ds-plant-oee-101"
+      ],
+      "outputDatasetIds": [
+        "ds-plant-oee-rollup-102"
+      ],
       "actionCount": 0,
-      "owner": {"id": "u-103", "name": "Plant Operations"},
+      "owner": {
+        "id": "u-103",
+        "name": "Plant Operations"
+      },
       "runCadence": "daily",
       "_governance": "governed",
       "_triplet_lineage_id": "plant_oee"
@@ -29,10 +46,18 @@
       "id": "df-supplier-magic-0003",
       "name": "Supplier Quality Scorecard Blend",
       "databaseType": "MAGIC",
-      "inputDatasetIds": ["ds-supplier-scorecard-xls-201", "ds-parts-orders-0003"],
-      "outputDatasetIds": ["ds-supplier-quality-out-301"],
+      "inputDatasetIds": [
+        "ds-supplier-scorecard-xls-201",
+        "ds-parts-orders-0003"
+      ],
+      "outputDatasetIds": [
+        "ds-supplier-quality-out-301"
+      ],
       "actionCount": 9,
-      "owner": {"id": "u-204", "name": "Quality Analyst"},
+      "owner": {
+        "id": "u-204",
+        "name": "Quality Analyst"
+      },
       "runCadence": "weekly",
       "_governance": "shadow",
       "_triplet_lineage_id": "supplier_quality"
@@ -41,10 +66,17 @@
       "id": "df-capex-magic-0004",
       "name": "CapEx Tracker Aggregation (+writeback)",
       "databaseType": "MAGIC",
-      "inputDatasetIds": ["ds-capex-tracker-webform-202"],
-      "outputDatasetIds": ["ds-capex-summary-out-302"],
+      "inputDatasetIds": [
+        "ds-capex-tracker-webform-202"
+      ],
+      "outputDatasetIds": [
+        "ds-capex-summary-out-302"
+      ],
       "actionCount": 6,
-      "owner": {"id": "u-205", "name": "Finance Ops"},
+      "owner": {
+        "id": "u-205",
+        "name": "Finance Ops"
+      },
       "runCadence": "on-submit",
       "_governance": "shadow",
       "_has_writeback": true,
@@ -54,13 +86,63 @@
       "id": "df-logistics-magic-0005",
       "name": "Inbound Lane Cost Blend",
       "databaseType": "MAGIC",
-      "inputDatasetIds": ["ds-logistics-lanes-sheets-203", "ds-parts-orders-0003"],
-      "outputDatasetIds": ["ds-lane-cost-out-303"],
+      "inputDatasetIds": [
+        "ds-logistics-lanes-sheets-203",
+        "ds-parts-orders-0003"
+      ],
+      "outputDatasetIds": [
+        "ds-lane-cost-out-303"
+      ],
       "actionCount": 7,
-      "owner": {"id": "u-206", "name": "Logistics Analyst"},
+      "owner": {
+        "id": "u-206",
+        "name": "Logistics Analyst"
+      },
       "runCadence": "weekly",
       "_governance": "shadow",
       "_triplet_lineage_id": "inbound_lane"
+    },
+    {
+      "id": "df-customer360-copy-0006",
+      "name": "Customer 360 - Aftermarket Master (copy)",
+      "databaseType": "MAGIC",
+      "inputDatasetIds": [
+        "ds-warranty-claims-0001",
+        "ds-service-tickets-002",
+        "ds-parts-orders-0003",
+        "ds-account-master-004"
+      ],
+      "outputDatasetIds": [
+        "ds-customer360-copy-out-9998"
+      ],
+      "actionCount": 15,
+      "owner": {
+        "id": "u-217",
+        "name": "Priya Nair"
+      },
+      "runCadence": "manual",
+      "_governance": "shadow"
+    },
+    {
+      "id": "df-customer360-jun-0007",
+      "name": "Customer 360 Master COPY Jun2025",
+      "databaseType": "MAGIC",
+      "inputDatasetIds": [
+        "ds-warranty-claims-0001",
+        "ds-service-tickets-002",
+        "ds-parts-orders-0003",
+        "ds-account-master-004"
+      ],
+      "outputDatasetIds": [
+        "ds-customer360-jun-out-9997"
+      ],
+      "actionCount": 15,
+      "owner": {
+        "id": "u-244",
+        "name": "Marcus Webb"
+      },
+      "runCadence": "manual",
+      "_governance": "shadow"
     }
   ]
 }

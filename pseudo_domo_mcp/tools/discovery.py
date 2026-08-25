@@ -34,7 +34,8 @@ def domo_inventory(asset_type: str = "", search: str = "") -> Dict[str, Any]:
         s = search.lower()
         items = [a for a in items if s in (a.get("name") or "").lower()]
     return {"assets": items, "counts_by_type": inv["counts_by_type"],
-            "asset_types": assets_mod.ASSET_TYPES, "matched": len(items)}
+            "asset_types": assets_mod.ASSET_TYPES, "matched": len(items),
+            "duplicate_clusters": inv.get("duplicate_clusters", [])}
 
 
 def domo_discover(scope: str = "summary") -> Dict[str, Any]:

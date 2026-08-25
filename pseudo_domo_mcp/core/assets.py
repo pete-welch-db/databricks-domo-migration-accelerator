@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from . import governance, feasibility, classifier, scoring
+from . import governance, feasibility, classifier, scoring, dedup as dedup_mod
 
 
 def build_inventory(provider) -> Dict[str, Any]:
@@ -40,7 +40,12 @@ def build_inventory(provider) -> Dict[str, Any]:
         for ds_id in c.get("boundDatasetIds", []):
             bm_by_dataset[ds_id] = max(bm_by_dataset.get(ds_id, 0),
                                        c.get("beastModeCount", 0))
-    usage_ctx = scoring.usage_context(datasets, dataflows, cards, pages)
+    # Real usage when the provider exposes it (activity log + run history);
+    # falls back to the proxy inside usage_context when both are empty.
+    activity = provider.activity_log()
+    executions_by_flow = {df["id"]: provider.dataflow_executions(df["id"]) for df in dataflows}
+    usage_ctx = scoring.usage_context(datasets, dataflows, cards, pages,
+                                      activity=activity, executions_by_flow=executions_by_flow)
 
     assets: List[Dict[str, Any]] = []
 
@@ -154,6 +159,14 @@ def build_inventory(provider) -> Dict[str, Any]:
         a["usage"] = scoring.score_usage(a, usage_ctx)
         assets.append(a)
 
+    # Duplicate detection over the dataflows, then a composite priority score.
+    df_assets = [a for a in assets if a["asset_type"] in ("magic_etl", "sql_dataflow")]
+    usage_by_id = {a["id"]: (a.get("usage") or {}).get("usage_score", 0) for a in df_assets}
+    dd = dedup_mod.detect_duplicates(dataflows, usage_by_id)
+    for a in df_assets:
+        a["dedup"] = dd["by_id"].get(a["id"], {"is_duplicate": False, "cluster_size": 1})
+        a["priority"] = scoring.priority_score(a)
+
     # Tag each asset with its migration path + whether it drives the Build step.
     type_meta = {t["key"]: t for t in ASSET_TYPES}
     counts: Dict[str, int] = {}
@@ -164,7 +177,8 @@ def build_inventory(provider) -> Dict[str, Any]:
         a["migration_path_label"] = PATH_LABEL.get(tm.get("path", ""), "")
         a["build"] = tm.get("build", False)
 
-    return {"assets": assets, "counts_by_type": counts}
+    return {"assets": assets, "counts_by_type": counts,
+            "duplicate_clusters": dd["clusters"]}
 
 
 # Display metadata for the UI. Every type has a migration PATH — but the paths

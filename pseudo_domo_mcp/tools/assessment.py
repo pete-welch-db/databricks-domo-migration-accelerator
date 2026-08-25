@@ -31,9 +31,12 @@ def domo_assess(scope: str = "dataflows") -> Dict[str, Any]:
     datasets = {d["id"]: d for d in p.list_datasets()}
     cards = p.list_cards()
     dataflows = p.list_dataflows()
-    # Profiler/Analyzer usage context (dependency + scale maps for the proxy).
-    usage_ctx = scoring.usage_context(list(datasets.values()), dataflows, cards,
-                                      p.list_pages())
+    # Profiler/Analyzer usage context — measured when the provider exposes
+    # activity + run history, else the proxy.
+    usage_ctx = scoring.usage_context(
+        list(datasets.values()), dataflows, cards, p.list_pages(),
+        activity=p.activity_log(),
+        executions_by_flow={df["id"]: p.dataflow_executions(df["id"]) for df in dataflows})
 
     # Beast-mode count per output dataset (via the card bound to it).
     bm_by_dataset: Dict[str, int] = {}

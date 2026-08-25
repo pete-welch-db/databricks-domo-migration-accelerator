@@ -441,3 +441,10 @@ th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: upp
 .build-targets .bt-label { font-size:11px; color:var(--muted); margin-bottom:6px; }
 .bt-options { display:flex; flex-wrap:wrap; gap:12px; }
 .bt-cb { display:flex; align-items:center; gap:5px; font-size:13px; color:var(--text); }
+
+/* ---- priority / duplicate chips + active quick-filter ---- */
+.chip.sc.pr-HIGH { color:var(--green); border-color:#1c3a2a; }
+.chip.sc.pr-MEDIUM { color:var(--amber); border-color:#3a3418; }
+.chip.sc.pr-LOW { color:var(--muted); }
+.chip.sc.dup { color:var(--red); border-color:#3a1c1c; }
+.btn.tiny.on { background:var(--accent-2); color:#fff; border-color:var(--accent-2); }

@@ -36,12 +36,25 @@ Every dataflow carries transparent, rule-based signals (no ML — all explainabl
 - **Effort** (1-5): anchored on complexity, bumped for raw SQL without a triplet and for writeback.
 - **Usage** (0-100, **proxy**): dependent-card count + refresh cadence + relative scale.
 
-## Why is usage a "proxy"?
-Domo's public/instance API planes expose refresh cadence and dependency shape,
-but not an activity log, so usage is **inferred** and flagged `is_proxy`. When a
-real activity log is available, wire it via `LiveProvider.activity_logs()` and
-swap the proxy for measured views. Assets with no dependent cards surface as
-retire candidates regardless.
+## Is usage measured or estimated?
+**Measured when available.** The provider pulls the Domo **Activity Log** (views
++ distinct users) and **DataFlow execution history** (run recency/frequency,
+last status); `score_usage` uses those and marks `is_proxy: False`. When a tenant
+doesn't expose them, it falls back to a **proxy** (dependent-card count + refresh
+cadence + scale, `is_proxy: True`) so discovery still works offline. The bundled
+fixtures ship a synthetic activity log + run history, so the whole
+usage → duplicates → priority story is demoable with no tenant.
+
+## How does it find "copies of copies" and what to migrate first?
+- **Duplicate detection** (`core/dedup.py`) clusters dataflows that read the
+  **identical input dataset set** — the copy-of-a-copy signature — picks the
+  most-used member as **canonical**, and flags the rest. In Rationalize, unused
+  duplicates default to **Retire** and used ones to **Consolidate** (into the
+  canonical) — suggestions only; you confirm.
+- **Migration priority** (`priority_score`, 0–100) = usage (heaviest) + business
+  value − migration effort − a duplicate penalty. The Plan leads with the
+  highest-priority objects; the low-usage / unused-duplicate "garbage pile" sinks
+  to the bottom and shows up under the **Retire candidates** filter.
 
 ## What are the disposition options and target surfaces?
 - **Dispositions:** Retire · Repoint · Rebuild · Elevate · Consolidate.

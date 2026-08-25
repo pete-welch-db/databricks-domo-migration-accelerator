@@ -41,6 +41,19 @@ class DomoProvider(ABC):
         or None if the full triplet isn't available (public-API-only object).
         In production this is the call that requires the export/private API."""
 
+    # -- usage / activity (optional; default empty so census still works) --- #
+    def activity_log(self, hours: int = 720) -> List[Dict[str, Any]]:
+        """Recent activity events: {timestamp, actor, eventType, objectType,
+        objectId, details}. Powers real usage scoring. Default [] — a provider
+        without audit access degrades to the proxy usage signal."""
+        return []
+
+    def dataflow_executions(self, dataflow_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """DataFlow run history: {startTime, endTime, status, triggeredBy,
+        rowsProcessed}, newest first. Default [] when execution history is
+        unavailable (e.g. no instance token)."""
+        return []
+
     # -- convenience, shared by all providers ------------------------------ #
     def source_systems(self) -> List[str]:
         """Distinct upstream source systems across the dataset census."""

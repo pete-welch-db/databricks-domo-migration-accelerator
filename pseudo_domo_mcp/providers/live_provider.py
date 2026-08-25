@@ -211,6 +211,47 @@ class LiveProvider(DomoProvider):
             })
         return out
 
+    # -- usage / activity -------------------------------------------------- #
+    def activity_log(self, hours: int = 720) -> List[Dict[str, Any]]:
+        """Activity/audit events (public plane, `audit` scope). Normalized to
+        {timestamp, actor, eventType, objectType, objectId, details}. Degrades to
+        [] when the audit scope isn't granted. Domo audit endpoint (confirm exact
+        path/params against the tenant): GET /v1/audit?start=<ms>&end=<ms>."""
+        try:
+            import time
+            end = int(time.time() * 1000)
+            start = end - int(hours * 3600 * 1000)
+            raw = self._paginate(f"/v1/audit?start={start}&end={end}") or []
+        except Exception:
+            return []
+        out = []
+        for e in raw:
+            out.append({
+                "timestamp": e.get("time") or e.get("eventTime"),
+                "actor": {"id": e.get("userId"), "name": e.get("userName")},
+                "eventType": e.get("eventType") or e.get("actionType"),
+                "objectType": (e.get("objectType") or "").lower(),
+                "objectId": e.get("objectId") or e.get("resourceId"),
+                "details": e.get("additionalComment") or {},
+            })
+        return out
+
+    def dataflow_executions(self, dataflow_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """DataFlow run history (instance plane). [] when no instance token.
+        GET /api/dataprocessing/v1/dataflows/{id}/executions (confirm on tenant)."""
+        raw = self._instance_get(
+            f"/api/dataprocessing/v1/dataflows/{dataflow_id}/executions?limit={limit}") or []
+        out = []
+        for r in raw:
+            out.append({
+                "startTime": r.get("beginTime") or r.get("startTime"),
+                "endTime": r.get("endTime"),
+                "status": (r.get("state") or r.get("status") or "").upper(),
+                "triggeredBy": r.get("activationType") or r.get("triggeredBy", ""),
+                "rowsProcessed": r.get("dataProcessed") or r.get("rowsProcessed", 0),
+            })
+        return out
+
     # -- per-lineage triplet (instance plane) ------------------------------ #
     def get_lineage_triplet(self, lineage_id: str) -> Optional[Dict[str, Any]]:
         """Assemble a migration unit from both planes. Returns None (skip) when

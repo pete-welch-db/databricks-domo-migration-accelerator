@@ -37,6 +37,30 @@ class FixtureProvider(DomoProvider):
     def list_pages(self) -> List[Dict[str, Any]]:
         return self._read("pages.json")["pages"]
 
+    # -- usage / activity (fixtures store days_ago → resolved to timestamps) - #
+    def activity_log(self, hours: int = 720) -> List[Dict[str, Any]]:
+        events = self._read_optional("activity_log.json").get("events", [])
+        out = [dict(e, timestamp=self._ts(e.pop("days_ago", 0))) for e in events]
+        cutoff = self._days_ago_ts(hours / 24.0)
+        return [e for e in out if e["timestamp"] >= cutoff]
+
+    def dataflow_executions(self, dataflow_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+        by_flow = self._read_optional("dataflow_executions.json")
+        runs = by_flow.get(dataflow_id, [])
+        out = [dict(r, startTime=self._ts(r.get("days_ago", 0))) for r in runs]
+        out.sort(key=lambda r: r["startTime"], reverse=True)
+        return out[:limit]
+
+    @staticmethod
+    def _ts(days_ago: float) -> str:
+        import datetime
+        t = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days_ago)
+        return t.isoformat()
+
+    @classmethod
+    def _days_ago_ts(cls, days: float) -> str:
+        return cls._ts(days)
+
     # -- per-lineage triplet ---------------------------------------------- #
     def get_lineage_triplet(self, lineage_id: str) -> Optional[Dict[str, Any]]:
         df = self._read_lineage(f"dataflow_{lineage_id}_magic_etl.json", optional=True)
@@ -66,6 +90,13 @@ class FixtureProvider(DomoProvider):
     # -- io ---------------------------------------------------------------- #
     def _read(self, filename: str) -> Dict[str, Any]:
         with open(os.path.join(self.tenant_dir, filename), "r", encoding="utf-8") as fh:
+            return json.load(fh)
+
+    def _read_optional(self, filename: str) -> Dict[str, Any]:
+        path = os.path.join(self.tenant_dir, filename)
+        if not os.path.exists(path):
+            return {}
+        with open(path, "r", encoding="utf-8") as fh:
             return json.load(fh)
 
     def _read_lineage(self, filename: str, optional: bool = False):

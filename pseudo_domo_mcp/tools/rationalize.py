@@ -44,6 +44,10 @@ def suggest_dispositions(criteria: Dict[str, Any] | None = None) -> Dict[str, An
             "complexity_band": (a.get("complexity") or {}).get("band"),
             "effort_1_5": (a.get("effort") or {}).get("effort_1_5"),
             "usage_score": (a.get("usage") or {}).get("usage_score"),
+            "usage_measured": not (a.get("usage") or {}).get("is_proxy", True),
+            "usage_drivers": (a.get("usage") or {}).get("drivers", []),
+            "priority": (a.get("priority") or {}).get("score"),
+            "dedup": a.get("dedup") or {},
             "suggested": suggestion,
             "decided": cur,  # None until a human saves one
             "available_target_surfaces": rat.surfaces_for(a["asset_type"]),

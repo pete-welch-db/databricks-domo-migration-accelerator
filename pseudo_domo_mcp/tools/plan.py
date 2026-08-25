@@ -53,10 +53,12 @@ def migration_plan() -> Dict[str, Any]:
     retired = [a["name"] for a in assessments
                if (disp.get(a["dataflow_id"]) or {}).get("disposition") == "Retire"]
 
-    # Rank: value band desc, then complexity band asc, then $/yr value.
+    # Rank: measured usage first (lead with what's actually used), then value
+    # band, then complexity band, then $/yr value. Unused copies/one-offs sink.
     ranked = sorted(
         active,
-        key=lambda a: (_VALUE_RANK.get(a["value"]["band"], 3),
+        key=lambda a: (-int((a.get("usage") or {}).get("usage_score", 0)),
+                       _VALUE_RANK.get(a["value"]["band"], 3),
                        _CX_RANK.get(a["complexity"]["band"], 3),
                        -_value_num(a["value"]["value_per_year"])),
     )
