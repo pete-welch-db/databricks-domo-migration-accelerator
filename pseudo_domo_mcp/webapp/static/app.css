@@ -434,3 +434,10 @@ th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: upp
   border:1px solid var(--border); border-radius:6px; padding:4px 6px; width:100%; }
 .rat-scores { display:flex; flex-wrap:wrap; gap:3px; max-width:150px; }
 .btn.tiny { padding:2px 8px; font-size:11px; }
+
+/* ---- build-target selector (Create stage) ---- */
+.build-targets { margin:10px 0; padding:10px 12px; background:var(--panel);
+  border:1px solid var(--border); border-radius:10px; }
+.build-targets .bt-label { font-size:11px; color:var(--muted); margin-bottom:6px; }
+.bt-options { display:flex; flex-wrap:wrap; gap:12px; }
+.bt-cb { display:flex; align-items:center; gap:5px; font-size:13px; color:var(--text); }

@@ -111,32 +111,44 @@ def _bucket_waves(ranked: List[Dict[str, Any]],
             "target_surface": d.get("target_surface"),
         }
 
-    # If any active asset has an explicit assigned_wave, honor human wave design.
+    def auto_waves(assets, start_wave=1):
+        """Value/complexity auto-buckets: governed split in half + shadow last."""
+        governed = [a for a in assets if a["governance"] != "shadow"]
+        shadow = [a for a in assets if a["governance"] == "shadow"]
+        cut = (len(governed) + 1) // 2
+        waves, w = [], start_wave
+        if governed[:cut]:
+            waves.append({"wave": w, "theme": "Start here — highest-priority governed pipelines (best value-to-effort)",
+                          "items": [entry(a) for a in governed[:cut]]}); w += 1
+        if governed[cut:]:
+            waves.append({"wave": w, "theme": "Governed remainder — larger or more complex pipelines",
+                          "items": [entry(a) for a in governed[cut:]]}); w += 1
+        if shadow:
+            waves.append({"wave": w, "theme": "Shadow IT — Databricks Apps + Lakebase re-platform",
+                          "items": [entry(a) for a in shadow]})
+        return waves
+
+    # Assets a human explicitly placed go into their assigned wave; the rest keep
+    # the value/complexity auto-buckets (numbered after the assigned ones) — so
+    # assigning one asset never collapses the whole plan.
     assigned = {a["dataflow_id"]: (disp.get(a["dataflow_id"]) or {}).get("assigned_wave")
                 for a in ranked}
     if any(assigned.values()):
         by_wave: Dict[int, List[Dict[str, Any]]] = {}
+        unassigned = []
         for a in ranked:
-            w = assigned.get(a["dataflow_id"]) or 99  # undecided → trailing wave
-            by_wave.setdefault(int(w), []).append(entry(a))
-        out = []
-        for w in sorted(by_wave):
-            theme = ("Unassigned — decide a wave in Rationalize" if w == 99
-                     else f"Wave {w} — assigned in rationalization")
-            out.append({"wave": w, "theme": theme, "items": by_wave[w]})
+            w = assigned.get(a["dataflow_id"])
+            if w:
+                by_wave.setdefault(int(w), []).append(entry(a))
+            else:
+                unassigned.append(a)
+        out = [{"wave": w, "theme": f"Wave {w} — assigned in rationalization", "items": by_wave[w]}
+               for w in sorted(by_wave)]
+        if unassigned:
+            out += auto_waves(unassigned, start_wave=(max(by_wave) + 1))
         return out
 
-    governed = [a for a in ranked if a["governance"] != "shadow"]
-    shadow = [a for a in ranked if a["governance"] == "shadow"]
-    cut = (len(governed) + 1) // 2
-    return [
-        {"wave": 1, "theme": "Start here — highest-priority governed pipelines (best value-to-effort)",
-         "items": [entry(a) for a in governed[:cut]]},
-        {"wave": 2, "theme": "Governed remainder — larger or more complex pipelines",
-         "items": [entry(a) for a in governed[cut:]]},
-        {"wave": 3, "theme": "Shadow IT — Databricks Apps + Lakebase re-platform",
-         "items": [entry(a) for a in shadow]},
-    ]
+    return auto_waves(ranked, start_wave=1)
 
 
 def _pilot_view(a):

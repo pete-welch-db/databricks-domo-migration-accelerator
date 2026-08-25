@@ -49,7 +49,10 @@ def retarget_sql(sql: str, catalog: str, schema_prefix: str = "") -> str:
 def write_bundle(result: Dict[str, Any], out_root: str,
                  catalog: str, schema: str,
                  profile: str = "", language: str = "sql",
-                 mapping: Dict[str, Any] = None) -> Dict[str, Any]:
+                 mapping: Dict[str, Any] = None,
+                 build_targets: List[str] = None,
+                 orchestration: Dict[str, Any] = None,
+                 connectors: List[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Materialize a deployable DAB for a transpiled lineage.
 
     Args:
@@ -58,8 +61,17 @@ def write_bundle(result: Dict[str, Any], out_root: str,
         catalog/schema: the configured Databricks target.
         profile: Databricks CLI profile; if set, we also deploy for real.
         language: "sql" | "python" — the SDP source language to emit.
+        build_targets: which artifacts to generate (defaults to ["etl_pipeline"]).
+            Any of: etl_pipeline · metric_views · ai_bi_dashboard · genie_space ·
+            databricks_workflow · uc_ingestion.
+        orchestration: orchestration graph (for databricks_workflow).
+        connectors: connector assets (for uc_ingestion).
     """
     from . import sdp  # local import avoids a cycle
+    from .generators import (DEFAULT_TARGETS, metric_views as gen_mv,
+                             dashboard as gen_dash, genie as gen_genie,
+                             workflow as gen_wf, ingestion as gen_ing)
+    targets = build_targets or DEFAULT_TARGETS
     lineage = result["lineage"]
     lid = lineage["id"]
     name = re.sub(r"[^a-z0-9_]+", "_", lineage["name"].lower()).strip("_")
@@ -67,20 +79,49 @@ def write_bundle(result: Dict[str, Any], out_root: str,
     ext = "py" if language == "python" else "sql"
     src_dir = os.path.join(bundle_dir, "src", "pipeline")
     os.makedirs(src_dir, exist_ok=True)
+    structured = result.get("structured") or {}
+    gold_fqn = retarget_sql(structured.get("gold_view_fqn", f"{catalog}.gold.{name}"), catalog)
+    gold_cols = structured.get("gold_schema", [])
 
-    # 1) Write the real SDP source (Lakeflow Declarative Pipeline) in the chosen
-    #    language, retargeted to the configured catalog.
+    def _write(rel, content):
+        path = os.path.join(bundle_dir, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(content)
+        written.append(rel)
+
     written: List[str] = []
-    sdp_code = sdp.render(result, language, mapping=mapping)
-    sdp_code = retarget_sql(sdp_code, catalog, schema_prefix="")
-    sdp_path = os.path.join(src_dir, f"pipeline.{ext}")
-    with open(sdp_path, "w", encoding="utf-8") as fh:
-        fh.write(sdp_code)
-    written.append(os.path.relpath(sdp_path, bundle_dir))
-
-    # 2) databricks.yml — a DAB with one Lakeflow Declarative Pipeline.
     pipeline_name = f"pseudo_domo_{name}"
-    databricks_yml = _databricks_yml(pipeline_name, catalog, schema, written)
+    has_workflow = "databricks_workflow" in targets and orchestration
+
+    # 1) ETL pipeline — the real SDP source, retargeted to the configured catalog.
+    if "etl_pipeline" in targets:
+        sdp_code = retarget_sql(sdp.render(result, language, mapping=mapping), catalog)
+        _write(os.path.join("src", "pipeline", f"pipeline.{ext}"), sdp_code)
+    # 2) Standalone metric views (Beast Modes).
+    if "metric_views" in targets:
+        _write(os.path.join("src", "metric_views", f"{name}.sql"),
+               retarget_sql(gen_mv.render(result), catalog))
+    # 3) AI/BI dashboard (.lvdash.json).
+    if "ai_bi_dashboard" in targets:
+        _write(os.path.join("src", "dashboards", f"{name}.lvdash.json"),
+               gen_dash.render(gold_fqn, gold_cols, lineage["name"]))
+    # 4) Genie space definition.
+    if "genie_space" in targets:
+        _write(os.path.join("src", "genie", f"{name}.genie.yml"),
+               gen_genie.render(gold_fqn, gold_cols, lineage["name"]))
+    # 5) Databricks Workflow from the orchestration graph.
+    if has_workflow:
+        _write(os.path.join("resources", "orchestration.job.yml"),
+               gen_wf.render(orchestration, f"{pipeline_name}_orchestration"))
+    # 6) UC ingestion scaffolding per connector.
+    if "uc_ingestion" in targets and connectors:
+        for c in connectors:
+            for rel, content in gen_ing.render_connector(c, catalog, schema).items():
+                _write(rel, content)
+
+    # databricks.yml — pipelines (if etl) + include resources/*.yml (if workflow).
+    databricks_yml = _databricks_yml(pipeline_name, catalog, schema, written, targets, has_workflow)
     with open(os.path.join(bundle_dir, "databricks.yml"), "w", encoding="utf-8") as fh:
         fh.write(databricks_yml)
 
@@ -131,13 +172,15 @@ def _deploy(bundle_dir: str, profile: str) -> Dict[str, Any]:
 
 
 def _databricks_yml(pipeline_name: str, catalog: str, schema: str,
-                    sql_files: List[str]) -> str:
-    libs = "\n".join(f"        - file:\n            path: {p}" for p in sql_files)
-    return f"""# Databricks Asset Bundle — generated by Pseudo-Domo MCP.
-# Deploy:  databricks bundle deploy -p <profile>
-bundle:
-  name: {pipeline_name}
-
+                    written: List[str], targets: List[str] = None,
+                    has_workflow: bool = False) -> str:
+    targets = targets or ["etl_pipeline"]
+    include = "\ninclude:\n  - resources/*.yml\n" if has_workflow else ""
+    pipelines = ""
+    if "etl_pipeline" in targets:
+        pipe_libs = [p for p in written if p.startswith(os.path.join("src", "pipeline"))]
+        libs = "\n".join(f"        - file:\n            path: {p}" for p in pipe_libs)
+        pipelines = f"""
 resources:
   pipelines:
     {pipeline_name}:
@@ -147,7 +190,12 @@ resources:
       serverless: true
       libraries:
 {libs}
-
+"""
+    return f"""# Databricks Asset Bundle — generated by the Domo Migration Accelerator.
+# Deploy:  databricks bundle deploy -p <profile>
+bundle:
+  name: {pipeline_name}
+{include}{pipelines}
 targets:
   dev:
     default: true

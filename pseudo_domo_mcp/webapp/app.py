@@ -33,6 +33,8 @@ from ..core import patterns
 from ..core import model_catalog
 from ..core import llm
 from ..core import uploads
+from ..core import filters as filtercore
+from ..core import rationalize as ratcore
 from ..core.graph import build_graph
 from ..core.bundle import write_bundle
 from ..transpiler import pipeline
@@ -73,10 +75,9 @@ def inventory(asset_type: str = "", search: str = "") -> Dict[str, Any]:
     inv = discovery.domo_inventory(asset_type=asset_type, search=search)
     # Facets (distinct filterable values) let the UI build the filter panel from
     # the real estate; saved dispositions are merged so a disposition filter works.
-    from ..core import filters as _filters, rationalize as _rat
     saved = {r["asset_id"]: r for r in store.get_store().list("rationalizations")}
-    _rat.merge_dispositions(inv["assets"], saved)
-    inv["facets"] = _filters.facets(inv["assets"])
+    ratcore.merge_dispositions(inv["assets"], saved)
+    inv["facets"] = filtercore.facets(inv["assets"])
     if not asset_type and not search:  # a full scan — record it
         try:
             import datetime
@@ -234,6 +235,8 @@ def create(lineage_id: str, payload: Optional[Dict[str, Any]] = Body(default=Non
     schema = payload.get("schema") or cfg.schema
     profile = payload.get("profile", cfg.databricks_profile)
     language = payload.get("language") or cfg.pipeline_language
+    from ..core.generators import DEFAULT_TARGETS
+    build_targets = payload.get("build_targets") or DEFAULT_TARGETS
 
     tdir = _resolve_triplet_dir(lineage_id)
     if tdir is None:
@@ -242,14 +245,26 @@ def create(lineage_id: str, payload: Optional[Dict[str, Any]] = Body(default=Non
     tmp = tempfile.mkdtemp(prefix=f"create_{lineage_id}_")
     result = pipeline.run(lineage_id, tdir,
                           os.path.join(tmp, "out"), os.path.join(tmp, "sql"))
-    if result["reconciliation"]["gate"] != "PASS":
-        return {"error": "Reconcile gate did not PASS — refusing to create.",
+    # The reconcile gate protects the ETL pipeline (schema parity). Non-pipeline
+    # targets (dashboard/genie/metric views) don't require it, so only block when
+    # the pipeline itself is being generated.
+    if "etl_pipeline" in build_targets and result["reconciliation"]["gate"] != "PASS":
+        return {"error": "Reconcile gate did not PASS — refusing to create the pipeline.",
                 "transpile": result}
+
+    # Supply orchestration + connectors when those targets are requested.
+    orchestration = orchmod.orchestration_plan() if "databricks_workflow" in build_targets else None
+    connectors = None
+    if "uc_ingestion" in build_targets:
+        connectors = [a for a in discovery.domo_inventory()["assets"]
+                      if a["asset_type"] == "connector"]
 
     os.makedirs(_BUNDLE_ROOT, exist_ok=True)
     bundle = write_bundle(result, _BUNDLE_ROOT, catalog, schema,
                           profile=profile, language=language,
-                          mapping=_saved_mapping(lineage_id))
+                          mapping=_saved_mapping(lineage_id),
+                          build_targets=build_targets,
+                          orchestration=orchestration, connectors=connectors)
 
     # Optional: commit the bundle to a linked repo (opt-in via the repo field).
     if payload.get("repo") and cfg.git_provider:

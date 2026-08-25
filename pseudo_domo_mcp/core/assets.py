@@ -112,6 +112,7 @@ def build_inventory(provider) -> Dict[str, Any]:
             "complexity": cx,
             "value": classifier.value_tag(domain),
             "effort": scoring.score_effort(df, has_triplet, cx),
+            "has_writeback": bool(df.get("_has_writeback")),
             "has_triplet": has_triplet,
             "triplet_lineage_id": df.get("_triplet_lineage_id"),
             "_output_dataset_ids": out_ids,

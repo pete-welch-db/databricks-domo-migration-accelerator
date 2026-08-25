@@ -46,6 +46,7 @@ def suggest_dispositions(criteria: Dict[str, Any] | None = None) -> Dict[str, An
             "usage_score": (a.get("usage") or {}).get("usage_score"),
             "suggested": suggestion,
             "decided": cur,  # None until a human saves one
+            "available_target_surfaces": rat.surfaces_for(a["asset_type"]),
         })
     return {"rows": rows, "dispositions": rat.DISPOSITIONS,
             "target_surfaces": rat.TARGET_SURFACES, "count": len(rows)}

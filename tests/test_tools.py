@@ -202,8 +202,13 @@ def test_suggest_disposition_is_sane():
     by_name = {a["name"]: a for a in discovery.domo_inventory()["assets"]}
     cust = next(a for n, a in by_name.items() if "Customer 360" in n)
     assert rationalize.suggest_disposition(cust)["disposition"] == "Elevate"
-    capex = next(a for n, a in by_name.items() if "CapEx" in n)  # low usage + writeback
-    assert rationalize.suggest_disposition(capex)["disposition"] in rationalize.DISPOSITIONS
+    # A *used* writeback transform must route to Rebuild → apps_lakebase
+    # (deterministic — not just "in DISPOSITIONS"). Detection is non-circular:
+    # it reads the surfaced has_writeback flag, not only driver text.
+    wb = {"asset_type": "magic_etl", "has_writeback": True, "governance": "shadow",
+          "value": {"band": "MEDIUM"}, "usage": {"band": "MEDIUM", "usage_score": 45}}
+    s = rationalize.suggest_disposition(wb)
+    assert s["disposition"] == "Rebuild" and s["target_surface"] == "apps_lakebase"
 
 
 # ----- Future-state estimation --------------------------------------------- #
@@ -218,6 +223,32 @@ def test_estimate_rolls_up_effort():
 
 
 # ----- Orchestration (schedules + dependency graph → Workflows) ------------ #
+
+def test_generators_emit_valid_artifacts():
+    import json as _json
+    import yaml as _yaml
+    from pseudo_domo_mcp.core.generators import dashboard, genie, workflow, ingestion
+    cols = [{"name": "region", "domo_type": "STRING"}, {"name": "revenue", "domo_type": "DOUBLE"}]
+    dj = _json.loads(dashboard.render("cat.gold.sales", cols, "Sales"))
+    assert dj["datasets"][0]["queryLines"] == ["SELECT * FROM cat.gold.sales"]
+    gy = _yaml.safe_load(genie.render("cat.gold.sales", cols, "Sales", ["cat.gold.mv_sales"]))
+    assert gy["table_identifiers"] == ["cat.gold.mv_sales", "cat.gold.sales"]  # sorted
+    from pseudo_domo_mcp.tools import orchestration as _orch
+    wy = _yaml.safe_load(workflow.render(_orch.orchestration_plan()))
+    assert "jobs" in wy["resources"]
+    files = ingestion.render_connector(
+        {"name": "Salesforce", "databricks_remap": {"rating": "GREEN",
+         "connector": "Lakeflow Connect — Salesforce (managed)", "pattern": "Managed connector"}},
+        "cat", "sch")
+    assert any("lakeflow_connect" in f for f in files) and any("connection.sql" in f for f in files)
+
+
+def test_list_build_targets():
+    from pseudo_domo_mcp.tools import generate
+    bt = generate.list_build_targets()
+    keys = {t["key"] for t in bt["build_targets"]}
+    assert {"etl_pipeline", "ai_bi_dashboard", "genie_space", "uc_ingestion"} <= keys
+
 
 def test_orchestration_graph_and_mapping():
     from pseudo_domo_mcp.tools import orchestration

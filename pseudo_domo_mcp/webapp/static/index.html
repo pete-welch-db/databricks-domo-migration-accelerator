@@ -99,6 +99,7 @@
         <button id="btn-estimate" class="btn ghost">∑ Estimate future state</button>
       </div>
       <div id="rat-rollup" class="rat-rollup"></div>
+      <div id="rat-estimate"></div>
       <div class="toolbar">
         <input id="rat-search" type="text" class="search" placeholder="Filter the rationalization list…" />
         <div id="rat-bulk" class="rat-bulk"></div>
@@ -206,10 +207,14 @@
                   <select id="c-repo"><option value="">— no —</option></select>
                 </label>
               </div>
+              <div class="build-targets">
+                <div class="bt-label">Build targets — select what to generate</div>
+                <div id="c-targets" class="bt-options"></div>
+              </div>
               <div id="create-hint" class="hint"></div>
               <div class="stage-actions">
                 <button class="btn ghost" data-goto="draft">← Back</button>
-                <button id="btn-create" class="btn create">⚡ Create pipeline</button>
+                <button id="btn-create" class="btn create">⚡ Create</button>
               </div>
               <div id="create-result" class="create-result hidden"></div>
             </section>

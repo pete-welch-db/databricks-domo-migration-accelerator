@@ -306,3 +306,28 @@ def test_rationalize_roundtrip_and_plan_reflects():
         _json.dump(d, open(_store._LOCAL_PATH, "w"), indent=2)
     except Exception:
         pass
+
+
+def test_nondataflow_disposition_counts_and_wave_no_collapse():
+    import json as _json
+    from pseudo_domo_mcp.core import store as _store
+    inv = client.get("/api/inventory").json()["assets"]
+    card = next(a for a in inv if a["asset_type"] == "card")
+    df = next(a for a in inv if a["asset_type"] in ("magic_etl", "sql_dataflow"))
+    # a CARD disposition (Elevate -> ai_bi_genie) must show in the estimate,
+    client.post("/api/rationalize", json={"asset_id": card["id"], "disposition": "Elevate",
+                                          "target_surface": "ai_bi_genie", "rationale": "t"})
+    # and assigning ONE dataflow a wave must NOT collapse the rest into one wave.
+    client.post("/api/rationalize", json={"asset_id": df["id"], "disposition": "Rebuild",
+                                          "target_surface": "ai_bi_genie", "assigned_wave": 1})
+    est = client.get("/api/estimate").json()
+    assert est["target_surfaces"].get("ai_bi_genie", 0) >= 1  # card counted (fix 1)
+    pl = client.get("/api/plan").json()
+    non_empty = [w for w in pl["waves"] if w["items"]]
+    assert len(non_empty) >= 2  # assigned wave + auto buckets, not collapsed (fix 2)
+    try:
+        d = _json.load(open(_store._LOCAL_PATH))
+        d["rationalizations"] = {}
+        _json.dump(d, open(_store._LOCAL_PATH, "w"), indent=2)
+    except Exception:
+        pass

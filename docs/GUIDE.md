@@ -90,7 +90,23 @@ auto-sequences by value-to-effort with shadow-IT as its own wave. **Orchestratio
 Pick a migratable asset → **Analyze** its DAG → **Map** columns to the model →
 **Draft** the Lakeflow pipeline (SQL or Python) with Beast Modes folded into a
 metric view → **Create** the deployable bundle (and deploy if a profile is set).
-The **reconcile gate** verifies gold schema parity before you ship.
+The **reconcile gate** verifies gold schema parity before you ship the pipeline.
+
+**Selectable build targets.** Create isn't ETL-only — a checkbox group picks
+what to generate into the bundle:
+
+| Target | Artifact written |
+|---|---|
+| ETL Pipeline (SDP) | `src/pipeline/pipeline.{sql,py}` — Lakeflow Declarative Pipeline (gate-protected) |
+| Metric Views | `src/metric_views/*.sql` — UC metric views from Beast Modes |
+| AI/BI Dashboard | `src/dashboards/*.lvdash.json` — Lakeview dashboard on the gold view |
+| Genie Space | `src/genie/*.genie.yml` — Genie space over gold + metric views |
+| Databricks Workflow | `resources/*.job.yml` — multi-task Job from the orchestration graph |
+| UC Ingestion | `src/ingestion/*` — per-connector Lakeflow Connect / Auto Loader / UC connection + secrets / custom Python |
+
+Non-ETL targets don't require the reconcile gate (only the pipeline does).
+Generated artifacts are honest scaffolds grounded in the recovered Domo shapes —
+review before deploying.
 
 ---
 

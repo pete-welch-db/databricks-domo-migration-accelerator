@@ -17,24 +17,34 @@ FTE_WEEKS_PER_EFFORT_POINT = 0.4
 
 
 def estimate(active_assets: List[Dict[str, Any]],
+             all_dispositions: Optional[List[Dict[str, Any]]] = None,
              domo_annual_spend: Optional[float] = None) -> Dict[str, Any]:
-    """Estimate the target state from active (non-retired) assets + decisions."""
+    """Estimate the target state.
+
+    Effort is summed over `active_assets` (the transforms that carry effort
+    scores). Decision counts (by disposition / target surface) come from
+    `all_dispositions` — every saved rationalization across ALL asset types
+    (cards, pages, connectors, …), so the estimate reflects what was actually
+    decided, not just the dataflow subset.
+    """
     total_points = 0
     by_effort_band = {"LOW": 0, "MEDIUM": 0, "HIGH": 0}
-    surfaces: Dict[str, int] = {}
-    by_disposition: Dict[str, int] = {}
-
     for a in active_assets:
         eff = a.get("effort") or {}
         total_points += int(eff.get("effort_1_5") or 0)
         b = eff.get("band")
         if b in by_effort_band:
             by_effort_band[b] += 1
-        d = a.get("disposition") or {}
-        if d.get("disposition"):
-            by_disposition[d["disposition"]] = by_disposition.get(d["disposition"], 0) + 1
-        if d.get("target_surface"):
-            surfaces[d["target_surface"]] = surfaces.get(d["target_surface"], 0) + 1
+
+    surfaces: Dict[str, int] = {}
+    by_disposition: Dict[str, int] = {}
+    for d in (all_dispositions or []):
+        disp = d.get("disposition")
+        if disp:
+            by_disposition[disp] = by_disposition.get(disp, 0) + 1
+        surf = d.get("target_surface")
+        if surf and surf != "none":
+            surfaces[surf] = surfaces.get(surf, 0) + 1
 
     n = len(active_assets)
     high = by_effort_band["HIGH"]

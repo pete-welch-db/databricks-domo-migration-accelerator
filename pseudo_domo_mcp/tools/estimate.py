@@ -27,4 +27,7 @@ def estimate_migration(domo_annual_spend: float = 0.0) -> Dict[str, Any]:
             a["disposition"] = d
     active = [a for a in assessed
               if (disp.get(a["dataflow_id"]) or {}).get("disposition") != "Retire"]
-    return estmod.estimate(active, domo_annual_spend or None)
+    # Decision counts span ALL asset types (cards/pages/connectors), not just
+    # dataflows — effort is summed over the active transforms only.
+    all_dispositions = list(disp.values())
+    return estmod.estimate(active, all_dispositions, domo_annual_spend or None)

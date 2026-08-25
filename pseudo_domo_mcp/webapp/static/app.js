@@ -283,8 +283,9 @@ function renderRatTable() {
     const surf = cur.target_surface || "";
     const dsel = `<select class="rat-disp" data-id="${esc(r.asset_id)}"><option value="">—</option>` +
       DISPOSITIONS.map(d => `<option value="${d}" ${d === disp ? "selected" : ""}>${d}</option>`).join("") + `</select>`;
+    const surfOpts = r.available_target_surfaces || SURFACES.map(([k, l]) => ({ key: k, label: l }));
     const ssel = `<select class="rat-surf" data-id="${esc(r.asset_id)}"><option value="">—</option>` +
-      SURFACES.map(([k, l]) => `<option value="${k}" ${k === surf ? "selected" : ""}>${l}</option>`).join("") + `</select>`;
+      surfOpts.map(o => `<option value="${o.key}" ${o.key === surf ? "selected" : ""}>${esc(o.label)}</option>`).join("") + `</select>`;
     const badge = r.decided ? `<span class="chip gov-governed">saved</span>` : `<span class="chip sc">suggested</span>`;
     const scores = `${r.value_band ? `<span class="chip sc val-${r.value_band}">val ${r.value_band}</span>` : ""}
       ${r.effort_1_5 ? `<span class="chip sc">eff ${r.effort_1_5}/5</span>` : ""}
@@ -324,13 +325,12 @@ function renderRatBulk() {
     const d = $("#rat-bulk-disp").value; if (!d) return;
     const vis = ratVisible();
     if (!confirm(`Set ${vis.length} shown asset(s) to "${d}"?`)) return;
-    for (const r of vis) {
-      await api("/api/rationalize", { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ asset_id: r.asset_id, disposition: d,
-          target_surface: (r.suggested || {}).target_surface || "", rationale: "bulk" }) });
-      r.decided = { disposition: d, target_surface: (r.suggested || {}).target_surface || "", rationale: "bulk" };
-    }
-    renderRatTable(); refreshRatRollup();
+    // One call to the bulk endpoint (criteria = the current name search) instead
+    // of N sequential POSTs; then reload rows to reflect saved state.
+    await api("/api/rationalize/bulk", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ criteria: state.ratSearch ? { search: state.ratSearch } : {},
+        disposition: d, rationale: "bulk" }) });
+    await loadRationalize();
   };
 }
 async function refreshRatRollup() {
@@ -341,15 +341,16 @@ async function refreshRatRollup() {
   $("#rat-rollup").innerHTML =
     `<div class="rr-line"><b>${roll.total || 0}</b> decided ·
       ${Object.entries(disp).map(([k, v]) => chip(k, v)).join(" ") || "<span class='muted small'>none yet</span>"}</div>
-     ${Object.keys(surf).length ? `<div class="rr-line muted small">surfaces: ${Object.entries(surf).map(([k, v]) => chip(k, v)).join(" ")}</div>` : ""}
-     <div id="rr-estimate"></div>`;
+     ${Object.keys(surf).length ? `<div class="rr-line muted small">surfaces: ${Object.entries(surf).map(([k, v]) => chip(k, v)).join(" ")}</div>` : ""}`;
 }
 async function showEstimate() {
   const spend = prompt("Current Domo annual spend to frame savings (optional, $):", "");
   const q = spend ? `?domo_annual_spend=${encodeURIComponent(spend.replace(/[^0-9.]/g, ""))}` : "";
   const e = await api(`/api/estimate${q}`);
   const me = e.migration_effort || {};
-  $("#rr-estimate").innerHTML = `<div class="rr-est">
+  // Written to its own persistent container so a later disposition-save (which
+  // re-renders #rat-rollup) doesn't wipe the estimate.
+  $("#rat-estimate").innerHTML = `<div class="rr-est">
     <b>Future-state estimate (directional)</b>
     <div>Migration effort: <b>${me.est_fte_weeks}</b> FTE-weeks across <b>${e.active_assets}</b> active assets (${me.total_effort_points} effort pts)</div>
     <div>Target consumption: <b>${(e.target_consumption || {}).band}</b> — ${esc((e.target_consumption || {}).rationale || "")}</div>
@@ -683,6 +684,16 @@ function prefillCreate() {
     $("#repo-wrap").classList.remove("hidden");
     $("#c-repo").innerHTML = `<option value="">— no —</option><option value="${c.git_repo}">${c.git_provider}: ${c.git_repo}</option>`;
   } else $("#repo-wrap").classList.add("hidden");
+  // Build-target selector — pick which artifacts to generate.
+  state.buildTargets = state.buildTargets || ["etl_pipeline"];
+  const TARGETS = [["etl_pipeline", "ETL Pipeline (SDP)"], ["metric_views", "Metric Views"],
+    ["ai_bi_dashboard", "AI/BI Dashboard"], ["genie_space", "Genie Space"],
+    ["databricks_workflow", "Databricks Workflow"], ["uc_ingestion", "UC Ingestion"]];
+  $("#c-targets").innerHTML = TARGETS.map(([k, l]) =>
+    `<label class="bt-cb"><input type="checkbox" value="${k}" ${state.buildTargets.includes(k) ? "checked" : ""}> ${l}</label>`).join("");
+  $$("#c-targets .bt-cb input").forEach(cb => cb.onchange = () => {
+    state.buildTargets = $$("#c-targets .bt-cb input:checked").map(x => x.value);
+  });
   $("#create-hint").innerHTML = c.deploy_ready
     ? `Profile <b>${c.databricks_profile}</b> set — Create writes the bundle <em>and</em> deploys.`
     : `No Databricks profile — Create writes a deployable bundle locally + shows the deploy command.`;
@@ -692,6 +703,7 @@ async function doCreate() {
   const btn = $("#btn-create"); btn.disabled = true; btn.textContent = "Creating…";
   const body = { catalog: $("#c-catalog").value, schema: $("#c-schema").value,
     profile: $("#c-profile").value, language: $("#c-language").value,
+    build_targets: state.buildTargets && state.buildTargets.length ? state.buildTargets : ["etl_pipeline"],
     repo: $("#c-repo") ? $("#c-repo").value : "" };
   const r = await api(`/api/create/${state.buildAsset.triplet_lineage_id}`,
     { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
