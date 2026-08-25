@@ -63,6 +63,7 @@ def domo_assess(scope: str = "dataflows") -> Dict[str, Any]:
         val = classifier.value_tag(domain)
         eff = scoring.score_effort(df, bool(df.get("_triplet_lineage_id")), cx)
         usage = scoring.score_usage({
+            "id": df["id"],  # needed so run-history lookup (runs_by_flow) resolves
             "asset_type": "magic_etl" if df.get("databaseType") == "MAGIC" else "sql_dataflow",
             "_output_dataset_ids": out_ids,
             "_run_cadence": df.get("runCadence"),

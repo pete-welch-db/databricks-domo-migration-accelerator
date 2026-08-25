@@ -38,7 +38,10 @@ def _schedule_from(summary: Dict[str, Any]):
 
 def render(orchestration: Dict[str, Any], job_name: str = "domo_migration_orchestration") -> str:
     dataflows = {s["dataflow_id"]: s for s in orchestration.get("schedules", [])}
-    keys = {df_id: _task_key(s["name"]) for df_id, s in dataflows.items()}
+    # Include the (unique) dataflow id in the task key so same-named "copy of
+    # copy" flows don't collide into an ambiguous Job.
+    keys = {df_id: f"{_task_key(s['name'])}__{_task_key(df_id)}"[:95]
+            for df_id, s in dataflows.items()}
     depends = {}
     for e in orchestration.get("dependencies", []):
         depends.setdefault(e["to"], []).append(e["from"])

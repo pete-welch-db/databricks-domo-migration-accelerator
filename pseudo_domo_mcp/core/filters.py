@@ -66,6 +66,16 @@ def _match(a: Dict[str, Any], c: Dict[str, Any]) -> bool:
     if c.get("has_triplet") is not None and bool(a.get("has_triplet")) != bool(c["has_triplet"]):
         return False
 
+    # Quick toggles (kept consistent with the UI so saved waves match what the
+    # user selected): duplicates-only, and the retire-candidates heuristic.
+    if c.get("dupOnly") and not (a.get("dedup") or {}).get("is_duplicate"):
+        return False
+    if c.get("retireOnly"):
+        low = ((a.get("priority") or {}).get("band") == "LOW"
+               or (a.get("usage") or {}).get("band") == "LOW")
+        if not low and not (a.get("dedup") or {}).get("is_duplicate"):
+            return False
+
     q = c.get("search")
     if q and q.lower() not in (a.get("name") or "").lower():
         return False

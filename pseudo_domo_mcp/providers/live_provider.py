@@ -61,6 +61,11 @@ class LiveProvider(DomoProvider):
         self.developer_token = developer_token
         self._token: Optional[str] = None
         self._token_exp: float = 0.0
+        # Memoize usage reads — the singleton provider is hit by several entry
+        # points per request; without this each dataflow_executions is a repeated
+        # HTTP call. Cleared implicitly per process (provider is lru_cached).
+        self._activity_cache: Optional[List[Dict[str, Any]]] = None
+        self._exec_cache: Dict[str, List[Dict[str, Any]]] = {}
 
     # -- auth -------------------------------------------------------------- #
     def _bearer(self) -> str:
@@ -217,12 +222,15 @@ class LiveProvider(DomoProvider):
         {timestamp, actor, eventType, objectType, objectId, details}. Degrades to
         [] when the audit scope isn't granted. Domo audit endpoint (confirm exact
         path/params against the tenant): GET /v1/audit?start=<ms>&end=<ms>."""
+        if self._activity_cache is not None:
+            return self._activity_cache
         try:
             import time
             end = int(time.time() * 1000)
             start = end - int(hours * 3600 * 1000)
             raw = self._paginate(f"/v1/audit?start={start}&end={end}") or []
         except Exception:
+            self._activity_cache = []
             return []
         out = []
         for e in raw:
@@ -234,11 +242,14 @@ class LiveProvider(DomoProvider):
                 "objectId": e.get("objectId") or e.get("resourceId"),
                 "details": e.get("additionalComment") or {},
             })
+        self._activity_cache = out
         return out
 
     def dataflow_executions(self, dataflow_id: str, limit: int = 50) -> List[Dict[str, Any]]:
         """DataFlow run history (instance plane). [] when no instance token.
         GET /api/dataprocessing/v1/dataflows/{id}/executions (confirm on tenant)."""
+        if dataflow_id in self._exec_cache:
+            return self._exec_cache[dataflow_id]
         raw = self._instance_get(
             f"/api/dataprocessing/v1/dataflows/{dataflow_id}/executions?limit={limit}") or []
         out = []
@@ -250,6 +261,7 @@ class LiveProvider(DomoProvider):
                 "triggeredBy": r.get("activationType") or r.get("triggeredBy", ""),
                 "rowsProcessed": r.get("dataProcessed") or r.get("rowsProcessed", 0),
             })
+        self._exec_cache[dataflow_id] = out
         return out
 
     # -- per-lineage triplet (instance plane) ------------------------------ #

@@ -99,11 +99,15 @@ def usage_context(datasets: List[Dict[str, Any]], dataflows: List[Dict[str, Any]
 
     runs: Dict[str, Dict[str, Any]] = {}
     for df_id, ex in (executions_by_flow or {}).items():
-        days = [d for d in (_days_since(r.get("startTime")) for r in ex) if d is not None]
+        # Pair each run with its age; the newest run (min age) drives recency AND
+        # last_status — don't assume the provider returned them sorted.
+        dated = [(_days_since(r.get("startTime")), r) for r in ex]
+        dated = [(d, r) for d, r in dated if d is not None]
+        newest = min(dated, key=lambda t: t[0])[1] if dated else (ex[0] if ex else None)
         runs[df_id] = {
             "count": len(ex),
-            "days_since_last": min(days) if days else None,
-            "last_status": (ex[0].get("status") if ex else None),
+            "days_since_last": min(d for d, _ in dated) if dated else None,
+            "last_status": (newest.get("status") if newest else None),
         }
     ctx["runs_by_flow"] = runs
     return ctx

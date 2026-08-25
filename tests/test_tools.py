@@ -275,6 +275,36 @@ def test_dedup_and_unused_drive_retire_consolidate():
     assert s["disposition"] == "Consolidate"
 
 
+def test_assess_usage_matches_inventory():
+    # domo_assess must score run-history usage identically to build_inventory
+    # (regression: the assess synthetic dict once dropped the id, zeroing runs).
+    from pseudo_domo_mcp.tools import assessment, discovery
+    inv = {a["name"]: a for a in discovery.domo_inventory()["assets"]}
+    for a in assessment.domo_assess("dataflows")["assessments"]:
+        assert a["usage"]["usage_score"] == inv[a["name"]]["usage"]["usage_score"]
+
+
+def test_workflow_task_keys_unique_for_same_name():
+    import yaml as _yaml
+    from pseudo_domo_mcp.core.generators import workflow
+    orch = {"schedules": [{"dataflow_id": "df-a", "name": "Sales Load"},
+                          {"dataflow_id": "df-b", "name": "Sales Load"}],
+            "dependencies": [], "summary": {"by_cadence": {"manual": 2}}}
+    tasks = list(_yaml.safe_load(workflow.render(orch))["resources"]["jobs"].values())[0]["tasks"]
+    keys = [t["task_key"] for t in tasks]
+    assert len(keys) == len(set(keys)) == 2
+
+
+def test_filter_dup_and_retire_toggles():
+    from pseudo_domo_mcp.core import filters
+    from pseudo_domo_mcp.tools import discovery
+    assets = discovery.domo_inventory()["assets"]
+    dups = filters.apply_filter({"dupOnly": True}, assets)
+    assert dups and all((a.get("dedup") or {}).get("is_duplicate") for a in dups)
+    retire = filters.apply_filter({"retireOnly": True}, assets)
+    assert len(retire) >= len(dups)  # retire pile includes dups + low usage/priority
+
+
 def test_bulk_apply_preserves_suggested_surface():
     import json as _json
     from pseudo_domo_mcp.tools import rationalize
