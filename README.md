@@ -106,11 +106,32 @@ Config is reachable anytime via **⚙ Config**.
 | `transpile_lineage` | 6-agent transpiler → medallion Spark SQL + folded Beast Modes + repoint plan + reconcile gate. |
 | `migration_plan` | Aggregate all of the above into a prioritized, value-driven **wave plan**. |
 
+## Requirements
+
+Python 3.11+. Runtime dependencies are declared in `pyproject.toml` and
+mirrored in `requirements.txt` (the Databricks App runtime installs from the
+latter):
+
+| Package | Why |
+|---|---|
+| `fastmcp` | the MCP server (stdio + streamable-HTTP) |
+| `fastapi`, `uvicorn[standard]`, `python-multipart` | the web console + file uploads |
+| `databricks-sdk==0.137.0` | Lakebase credentials + App service-principal auth. **Pinned** — a loose range lets the App runtime resolve a version without the `w.database` Lakebase API, which silently falls back to local storage. |
+| `psycopg[binary]` | the Lakebase (Postgres) store backend |
+
+`databricks-sdk` + `psycopg` are only exercised when `store_backend=lakebase`
+(or when running as an App); with the default local file store the tool needs
+neither at runtime.
+
+> Databricks machines have no direct PyPI egress, so `pyproject.toml`'s
+> `[tool.uv]` pins the internal mirror. Off-network, override it with
+> `uv pip install -e . --index-url https://pypi.org/simple/`.
+
 ## Quick start
 
 ```bash
 uv venv --python 3.11 .venv && source .venv/bin/activate
-uv pip install -e .            # add --index-url <your-mirror> behind a proxy
+uv pip install -e .            # uses the mirror pinned in pyproject [tool.uv]
 
 # 1) Web console (browse → analyze → draft → create)
 python -m pseudo_domo_mcp.webapp.app        # http://127.0.0.1:8010
@@ -145,8 +166,12 @@ Set in the web console's **⚙ Config** panel or via env (persisted to
 | `databricks_profile` | Databricks CLI profile (`databricks auth login`). Empty = write bundle files only; set = deploy for real. OAuth handled by the CLI; no workspace secret stored. |
 | `domo_provider` | `fixture` (offline) or `live` (Domo REST). |
 | `domo_client_id` + `DOMO_CLIENT_SECRET` (env) | Domo OAuth2 client_credentials. The **secret** is read from the environment, never written to config. |
-| `store_backend` + `lakebase_instance` | State persistence: `local` (JSON file, default) or `lakebase` (Databricks Postgres) for durable, shared scan history / migration status / bundle registry. |
+| `store_backend` + `lakebase_instance` | State persistence: `local` (JSON file, default) or `lakebase` (Databricks Postgres) for durable, shared scan history / migration status / bundle registry / saved config. As an App these come from env (`PSEUDO_DOMO_STORE_BACKEND` / `PSEUDO_DOMO_LAKEBASE_INSTANCE`). |
+| `llm_endpoint` (+ `DATABRICKS_TOKEN` env locally) | **Optional** LLM enhancement via a Databricks model serving endpoint (e.g. `databricks-claude-sonnet-5`). Off by default — the tool stays fully deterministic and offline; when set, the LLM only *augments* (governance rationale, mapping second-opinion, SQL-flow / Beast-Mode drafts) and always falls back. Locally authenticates with `DATABRICKS_TOKEN`; in an App with the service-principal token (no static token). |
 | `git_provider` + `git_repo` + `GIT_TOKEN` (env) | Optional: link a **GitHub** or **Azure DevOps** repo so Create commits the generated bundle as a PR. Token read from env, never stored. |
+
+> **Precedence:** persisted config (local file, or the store in an App) is
+> overlaid by environment variables, so `app.yaml` / shell env always win.
 
 ### Staying current with Databricks conventions
 
@@ -155,6 +180,98 @@ track the [ai-dev-kit](https://github.com/databricks-solutions/ai-dev-kit) repo.
 A pattern manifest is cached locally and refreshed on install; re-refresh
 anytime via **⚙ Config → Refresh patterns from ai-dev-kit**. Fully offline-safe:
 with no network, built-in defaults apply.
+
+## Deploy as a Databricks App
+
+The **same codebase** runs locally *and* as a fully managed Databricks App — no
+fork. `core/runtime.py` detects the App runtime (the `DATABRICKS_APP_NAME` env
+var the platform injects) and flips a few seams; local behaviour is untouched:
+
+| Seam | Local | Databricks App |
+|---|---|---|
+| Web bind | `127.0.0.1:8010` | `0.0.0.0` on the App port |
+| Config persistence | `.pseudo_domo_config.json` | the store (Lakebase) — an App's filesystem is ephemeral + per-replica |
+| Store backend | from the config file | from injected env (`PSEUDO_DOMO_STORE_BACKEND` / `PSEUDO_DOMO_LAKEBASE_INSTANCE`) |
+| LLM auth | `DATABRICKS_TOKEN` | the App service principal's OAuth token (via the SDK) |
+
+It ships as **two apps** over one engine:
+
+- **Console** — `app.yaml` (repo root): `python -m pseudo_domo_mcp.webapp.app`.
+- **MCP server** — `deploy/mcp.app.yaml`: `python -m pseudo_domo_mcp.server`
+  over streamable-HTTP. For Genie Code discovery the app **name must start with
+  `mcp-`**.
+
+**App env (set in `app.yaml`):** `PORT=8000`, `PSEUDO_DOMO_PROVIDER=fixture`,
+`PSEUDO_DOMO_STORE_BACKEND` (`lakebase` for the console / `local` for the MCP),
+`PSEUDO_DOMO_LAKEBASE_INSTANCE`, `PSEUDO_DOMO_LLM_ENDPOINT`.
+
+### Deploy the console
+
+```bash
+P=<your-cli-profile>
+WS=/Workspace/Users/<you>/domo-migration-console
+
+# 1) Create the app (provisions its service principal)
+databricks apps create domo-migration-console -p $P
+
+# 2) Sync source + deploy
+databricks sync . $WS --full \
+  --exclude .venv --exclude .git --exclude __pycache__ \
+  --exclude generated --exclude .pytest_cache -p $P
+databricks apps deploy domo-migration-console --source-code-path $WS -p $P
+```
+
+Then attach two **resources** (CLI `databricks apps update`, or App UI → Edit):
+
+- **Database** → your Lakebase instance, permission *Can connect and create*
+  (auto-injects `PGHOST/PGUSER/PGDATABASE/PGPORT`).
+- **Model serving** → the LLM endpoint, permission *Can query*.
+
+…and register the app's service principal as a **Lakebase Postgres role** so its
+OAuth token can log in (Lakebase identity federation):
+
+```bash
+databricks api post /api/2.0/database/instances/<instance>/roles -p $P --json '{
+  "name": "<app-service-principal-client-id>",
+  "identity_type": "SERVICE_PRINCIPAL",
+  "membership_role": "DATABRICKS_SUPERUSER"
+}'
+```
+
+**Redeploy** after attaching resources so the injected env is picked up. Verify
+with `GET /api/debug/store` (backend + connect error) and `/api/debug/llm`
+(a live model round-trip) — both behind the App's SSO.
+
+### Deploy the MCP app
+
+Apps only read `app.yaml` at the source root, so deploy the MCP manifest by
+importing it over that folder's `app.yaml`:
+
+```bash
+WS=/Workspace/Users/<you>/mcp-domo-migration
+databricks apps create mcp-domo-migration -p $P
+databricks sync . $WS --full --exclude .venv --exclude .git \
+  --exclude __pycache__ --exclude generated --exclude .pytest_cache -p $P
+databricks workspace import $WS/app.yaml --file deploy/mcp.app.yaml \
+  --format RAW --overwrite -p $P
+databricks apps deploy mcp-domo-migration --source-code-path $WS -p $P
+```
+
+The MCP app uses `store_backend=local` (assessment tools are stateless), so its
+service principal needs **no** Lakebase role.
+
+### Deploy gotchas
+
+- **Pin `databricks-sdk`** (see Requirements) — a loose range silently drops
+  Lakebase to local storage.
+- **App updates drop the SP's Lakebase grants** — re-attach the Database
+  resource after editing the app.
+- **Two `app.yaml`s, one repo** — a `databricks sync` into the MCP app's folder
+  overwrites its `app.yaml` with the console's; re-import `deploy/mcp.app.yaml`
+  before deploying the MCP app.
+- **`Create` in an App** writes the bundle and (optionally) opens a git PR — it
+  does **not** shell out to `databricks bundle deploy` (no CLI on the App path);
+  use a configured CLI profile locally for in-place deploys.
 
 ## Test
 
@@ -185,13 +302,19 @@ triplet), then implement the stubbed reads.
 ## Layout
 
 ```
+app.yaml               Databricks App manifest — CONSOLE (repo root)
+requirements.txt       runtime deps for the App runtime (mirrors pyproject)
+deploy/
+  mcp.app.yaml         Databricks App manifest — MCP server
 pseudo_domo_mcp/
   server.py            FastMCP server (stdio + streamable-http)
   webapp/              FastAPI console + zero-build HTML/CSS/JS frontend
   tools/               thin @mcp.tool wrappers (one per capability)
-  core/                engine: provider select, DDL parse, classify, governance
-                       inference, map, feasibility, assets (typed inventory),
-                       graph (DAG), config, bundle (DAB writer), gitlink
+  core/                engine: runtime (local vs App detection), provider
+                       select, DDL parse, classify, governance inference, map,
+                       feasibility, assets (typed inventory), graph (DAG),
+                       config, store (local JSON | Lakebase), llm (optional
+                       serving-endpoint enhancement), bundle (DAB writer), gitlink
   providers/           FixtureProvider (offline) | LiveProvider (Domo REST stub)
   transpiler/          6-agent Domo→Databricks transpiler + importable pipeline.run()
 fixtures/
