@@ -34,7 +34,7 @@ _LOCAL_PATH = os.path.join(_REPO_ROOT, ".pseudo_domo_state.json")
 # Every table prefixed to stay tidy in a shared Lakebase (matches common
 # Lakebase conventions of namespacing app tables).
 _TABLES = ("scans", "asset_status", "mappings", "bundles",
-           "filter_sets", "rationalizations")
+           "filter_sets", "rationalizations", "config")
 
 
 class StateStore(ABC):
@@ -100,28 +100,39 @@ class LakebaseStore(StateStore):
         self._conn = None
         self._fallback = LocalStore()
         self._ok = False
+        self.last_error = ""  # last connect failure, for diagnostics
 
     def _connect(self):
         if self._conn is not None:
             return self._conn
         try:
-            import psycopg  # noqa: F401
+            import psycopg
             from databricks.sdk import WorkspaceClient
             w = WorkspaceClient()
-            inst = w.database.get_database_instance(name=self.instance)
+            # A short-lived OAuth token for the instance (works for a user via
+            # U2M locally, or the App's service principal remotely).
             cred = w.database.generate_database_credential(
                 instance_names=[self.instance])
-            import psycopg
+            # Connection coordinates. When the App has a Database resource
+            # attached, the runtime injects PG* — prefer those; otherwise
+            # derive them from the instance + caller identity.
+            host = os.environ.get("PGHOST") or \
+                w.database.get_database_instance(name=self.instance).read_write_dns
+            user = os.environ.get("PGUSER") or w.current_user.me().user_name
+            dbname = os.environ.get("PGDATABASE", "databricks_postgres")
+            port = os.environ.get("PGPORT", "5432")
             self._conn = psycopg.connect(
-                host=inst.read_write_dns, dbname="databricks_postgres",
-                user=w.current_user.me().user_name, password=cred.token,
-                sslmode="require", autocommit=True)
+                host=host, port=port, dbname=dbname,
+                user=user, password=cred.token,
+                sslmode=os.environ.get("PGSSLMODE", "require"), autocommit=True)
             self._ensure_tables()
             self._ok = True
+            self.last_error = ""
             return self._conn
-        except Exception:
-            # Any failure (no SDK, no psycopg, unreachable) → local fallback.
+        except Exception as e:
+            # Any failure (no SDK, no psycopg, unreachable, no role) → local.
             self._ok = False
+            self.last_error = f"{type(e).__name__}: {e}"
             return None
 
     def _ensure_tables(self):
@@ -161,7 +172,19 @@ class LakebaseStore(StateStore):
 
 # --------------------------------------------------------------------------- #
 def get_store() -> StateStore:
-    """Build the configured store (imported here to avoid a config cycle)."""
+    """Build the configured store.
+
+    In an App the backend + instance come straight from injected env, so this
+    never calls load_config (which itself reads the store for user prefs — that
+    would recurse). Locally the choice comes from the persisted config file.
+    """
+    from .runtime import is_app
+    if is_app():
+        backend = os.environ.get("PSEUDO_DOMO_STORE_BACKEND", "lakebase")
+        instance = os.environ.get("PSEUDO_DOMO_LAKEBASE_INSTANCE", "")
+        if backend == "lakebase" and instance:
+            return LakebaseStore(instance)
+        return LocalStore()
     from .config import load_config
     cfg = load_config()
     if cfg.store_backend == "lakebase" and cfg.lakebase_instance:

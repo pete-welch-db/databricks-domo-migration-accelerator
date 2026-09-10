@@ -1,0 +1,8 @@
+# Runtime dependencies for the Databricks App deploy (console + MCP).
+# Kept in simple `pkg>=ver` form — the Apps installer is strict about format.
+fastmcp>=2.0.0
+fastapi>=0.110
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9
+databricks-sdk==0.137.0
+psycopg[binary]>=3.1

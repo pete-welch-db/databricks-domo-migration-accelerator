@@ -1,0 +1,21 @@
+# Databricks App manifest — MCP server (streamable-HTTP).
+#
+# Second app alongside the console. Lets an MCP client (Claude Code, Genie Code,
+# Cursor) drive the assessment tools remotely. For Genie Code discovery the app
+# NAME must start with `mcp-` (e.g. mcp-domo-migration).
+#
+# Deploy: sync the repo to the MCP app's workspace folder, then import this file
+# there AS app.yaml (Apps only read app.yaml at the source root), then
+#   databricks apps deploy mcp-domo-migration --source-code-path <ws path> -p welchco-aws
+command: ["python", "-m", "pseudo_domo_mcp.server"]
+env:
+  - name: PSEUDO_DOMO_TRANSPORT
+    value: "http"
+  - name: PORT
+    value: "8000"
+  - name: PSEUDO_DOMO_PROVIDER
+    value: "fixture"
+  # MCP tools are assessment-only; keep state ephemeral (no Lakebase role needed
+  # for this app's service principal).
+  - name: PSEUDO_DOMO_STORE_BACKEND
+    value: "local"

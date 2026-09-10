@@ -33,10 +33,38 @@ def _cfg():
     return load_config()
 
 
+def _host() -> str:
+    """Workspace host with a scheme. Apps inject DATABRICKS_HOST as a bare
+    hostname; add https:// so the request URL is valid."""
+    c = _cfg()
+    h = (c.databricks_host or os.environ.get("DATABRICKS_HOST", "")).strip()
+    if h and not h.startswith("http"):
+        h = "https://" + h
+    return h.rstrip("/")
+
+
+def _token() -> Optional[str]:
+    """A bearer token for serving. Locally: DATABRICKS_TOKEN. In an App: mint
+    one from the service principal via the SDK (no static token needed)."""
+    tok = os.environ.get("DATABRICKS_TOKEN")
+    if tok:
+        return tok
+    from .runtime import is_app
+    if not is_app():
+        return None
+    try:
+        from databricks.sdk import WorkspaceClient
+        hdr = WorkspaceClient().config.authenticate() or {}
+        return (hdr.get("Authorization", "") or "").replace("Bearer ", "") or None
+    except Exception:
+        return None
+
+
 def enabled() -> bool:
     c = _cfg()
-    return bool(c.llm_endpoint and (c.databricks_host or os.environ.get("DATABRICKS_HOST"))
-               and os.environ.get("DATABRICKS_TOKEN"))
+    from .runtime import is_app
+    has_token = bool(os.environ.get("DATABRICKS_TOKEN")) or is_app()
+    return bool(c.llm_endpoint and _host() and has_token)
 
 
 def status() -> Dict[str, Any]:
@@ -44,16 +72,16 @@ def status() -> Dict[str, Any]:
     return {
         "enabled": enabled(),
         "endpoint": c.llm_endpoint or None,
-        "host_present": bool(c.databricks_host or os.environ.get("DATABRICKS_HOST")),
-        "token_present": bool(os.environ.get("DATABRICKS_TOKEN")),
+        "host_present": bool(_host()),
+        "token_present": bool(_token()),
     }
 
 
 def _chat(messages: List[Dict[str, str]], max_tokens: int = 500) -> Optional[str]:
     """Call the serving endpoint's OpenAI-compatible chat route. None on failure."""
     c = _cfg()
-    host = (c.databricks_host or os.environ.get("DATABRICKS_HOST", "")).rstrip("/")
-    token = os.environ.get("DATABRICKS_TOKEN", "")
+    host = _host()
+    token = _token()
     if not (host and token and c.llm_endpoint):
         return None
     url = f"{host}/serving-endpoints/{c.llm_endpoint}/invocations"

@@ -25,6 +25,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from ..core.domo_client import get_provider
+from ..core import runtime
 from ..core import config as cfgmod
 from ..core import gitlink
 from ..core import sdp
@@ -93,8 +94,10 @@ def inventory(asset_type: str = "", search: str = "") -> Dict[str, Any]:
 def history() -> Dict[str, Any]:
     """Persisted scan history + bundle registry (from the configured store)."""
     s = store.get_store()
-    return {"backend": s.backend(), "scans": s.list("scans"),
-            "bundles": s.list("bundles")}
+    # Read the collections first: the store connects lazily, so backend() only
+    # reflects the true backend after a query has fired the connection.
+    scans, bundles = s.list("scans"), s.list("bundles")
+    return {"backend": s.backend(), "scans": scans, "bundles": bundles}
 
 
 # ----- Filtered discovery + saved filter sets (= migration waves) ---------- #
@@ -361,6 +364,47 @@ def llm_status() -> Dict[str, Any]:
     return llm.status()
 
 
+@app.get("/api/debug/store")
+def debug_store() -> Dict[str, Any]:
+    """Diagnostics for the persistence backend (env presence + connect error)."""
+    info: Dict[str, Any] = {
+        "mode": runtime.mode(),
+        "pg_env": {k: bool(os.environ.get(k))
+                   for k in ("PGHOST", "PGUSER", "PGDATABASE", "PGPORT")},
+        "pguser_value": os.environ.get("PGUSER", ""),
+        "lakebase_instance_env": os.environ.get("PSEUDO_DOMO_LAKEBASE_INSTANCE", ""),
+        "store_backend_env": os.environ.get("PSEUDO_DOMO_STORE_BACKEND", ""),
+    }
+    for mod in ("psycopg", "databricks.sdk"):
+        try:
+            __import__(mod)
+            info[mod] = "ok"
+        except Exception as e:  # noqa: BLE001
+            info[mod] = f"ERR {type(e).__name__}: {e}"
+    s = store.get_store()
+    # Force a real connection attempt before reporting (backend()/last_error are
+    # only meaningful after the lazy connect fires).
+    try:
+        info["config_rows"] = len(s.list("config"))
+    except Exception as e:  # noqa: BLE001
+        info["list_error"] = f"{type(e).__name__}: {e}"
+    info["backend"] = s.backend()
+    info["last_error"] = getattr(s, "last_error", None)
+    return info
+
+
+@app.get("/api/debug/llm")
+def debug_llm() -> Dict[str, Any]:
+    """Live LLM round-trip: prove the endpoint actually answers (not just that
+    it's configured). Uses the deterministic fallback path, so it never errors."""
+    st = llm.status()
+    if not st["enabled"]:
+        return {"status": st, "reply": None}
+    reply = llm._chat([{"role": "user", "content": "Reply with the single word: PONG"}],
+                      max_tokens=10)
+    return {"status": st, "reply": reply, "reachable": bool(reply)}
+
+
 @app.get("/api/config")
 def get_config() -> Dict[str, Any]:
     return cfgmod.load_config().public()
@@ -479,8 +523,8 @@ app.mount("/static", StaticFiles(directory=_STATIC), name="static")
 
 def main() -> None:
     import uvicorn
-    port = int(os.environ.get("PORT", "8010"))
-    uvicorn.run(app, host="127.0.0.1", port=port)
+    from ..core import runtime
+    uvicorn.run(app, host=runtime.bind_host(), port=runtime.bind_port())
 
 
 if __name__ == "__main__":

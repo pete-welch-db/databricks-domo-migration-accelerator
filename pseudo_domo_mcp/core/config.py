@@ -68,23 +68,52 @@ class AppConfig:
         return d
 
 
-def load_config() -> AppConfig:
-    cfg = AppConfig()
+def _load_persisted() -> Dict[str, Any]:
+    """User-editable prefs from wherever they live for this runtime.
+
+    Local: a JSON file next to the repo. App: the shared store (Lakebase) —
+    an App's filesystem is ephemeral and per-replica, so a file would not
+    survive a restart or be shared across replicas. The store's backend is
+    chosen from env in app mode (see store.get_store), so there is no cycle.
+    """
+    from .runtime import is_app
+    if is_app():
+        try:
+            from .store import get_store
+            rows = get_store().list("config")
+            return rows[-1] if rows else {}
+        except Exception:
+            return {}
     if os.path.exists(_CONFIG_PATH):
         try:
             with open(_CONFIG_PATH, "r", encoding="utf-8") as fh:
-                data = json.load(fh)
-            for k, v in data.items():
-                if hasattr(cfg, k):
-                    setattr(cfg, k, v)
+                return json.load(fh)
         except (json.JSONDecodeError, OSError):
-            pass
-    # Environment overrides (keep parity with the MCP server env).
+            return {}
+    return {}
+
+
+def load_config() -> AppConfig:
+    cfg = AppConfig()
+    for k, v in _load_persisted().items():
+        if hasattr(cfg, k):
+            setattr(cfg, k, v)
+    # Environment overrides (keep parity with the MCP server env). In an App
+    # these carry the infra config (store backend, Lakebase instance, serving
+    # endpoint, host) injected via app.yaml + the App runtime.
     cfg.catalog = os.environ.get("PSEUDO_DOMO_CATALOG", cfg.catalog)
     cfg.schema = os.environ.get("PSEUDO_DOMO_SCHEMA", cfg.schema)
     cfg.databricks_profile = os.environ.get("DATABRICKS_CONFIG_PROFILE",
                                             cfg.databricks_profile)
     cfg.domo_provider = os.environ.get("PSEUDO_DOMO_PROVIDER", cfg.domo_provider)
+    cfg.store_backend = os.environ.get("PSEUDO_DOMO_STORE_BACKEND", cfg.store_backend)
+    cfg.lakebase_instance = os.environ.get("PSEUDO_DOMO_LAKEBASE_INSTANCE",
+                                           cfg.lakebase_instance)
+    cfg.llm_endpoint = os.environ.get(
+        "PSEUDO_DOMO_LLM_ENDPOINT",
+        os.environ.get("SERVING_ENDPOINT", cfg.llm_endpoint))
+    # Apps inject DATABRICKS_HOST as a bare hostname (no scheme); llm.py adds it.
+    cfg.databricks_host = os.environ.get("DATABRICKS_HOST", cfg.databricks_host)
     return cfg
 
 
@@ -93,6 +122,15 @@ def save_config(updates: Dict[str, Any]) -> AppConfig:
     for k, v in updates.items():
         if hasattr(cfg, k) and k != "domo_client_secret":
             setattr(cfg, k, v)
-    with open(_CONFIG_PATH, "w", encoding="utf-8") as fh:
-        json.dump(asdict(cfg), fh, indent=2)
+    from .runtime import is_app
+    data = asdict(cfg)
+    if is_app():
+        try:
+            from .store import get_store
+            get_store().put("config", "current", data)
+        except Exception:
+            pass  # never block the UI on a persistence hiccup
+    else:
+        with open(_CONFIG_PATH, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=2)
     return cfg

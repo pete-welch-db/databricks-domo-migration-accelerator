@@ -11,6 +11,8 @@ dependencies = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.29",
     "python-multipart>=0.0.9",   # FastAPI file uploads (manual Magic ETL JSON)
+    "databricks-sdk==0.137.0",   # Lakebase creds + App SP auth (w.database API)
+    "psycopg[binary]>=3.1",      # Lakebase (Postgres) store backend
 ]
 
 [project.optional-dependencies]
@@ -39,3 +41,7 @@ packages = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.uv]
+# Databricks machines have no direct PyPI egress; install through the proxy.
+index-url = "https://pypi-proxy.dev.databricks.com/simple/"

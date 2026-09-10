@@ -1,15 +1,27 @@
-# Databricks App manifest (HTTP MCP).
+# Databricks App manifest — CONSOLE (the operator wizard UI).
 #
-# NOT deployed in this build (local-first per project decision). Kept as the
-# ready path: `databricks apps deploy` from this dir will serve the MCP over
-# streamable-HTTP. For Genie Code MCP discovery the app name must start with
-# `mcp-` (e.g. `mcp-pseudo-domo`).
+# This is the primary product surface. The MCP server ships as a second app
+# (see deploy/mcp.app.yaml). The App runtime injects DATABRICKS_APP_NAME (which
+# flips the code into "app mode"), DATABRICKS_HOST, an OAuth token for the app's
+# service principal, and — when a Database resource is attached — PGHOST/PGUSER/
+# PGDATABASE/PGPORT.
 #
-# The App runtime injects DATABRICKS_HOST + an OAuth token; the server uses
-# PORT (provided by the App) and PSEUDO_DOMO_TRANSPORT=http.
-command: ["python", "-m", "pseudo_domo_mcp.server"]
+# Deploy:  databricks apps deploy <name> --source-code-path <ws path> -p welchco-aws
+command: ["python", "-m", "pseudo_domo_mcp.webapp.app"]
 env:
-  - name: PSEUDO_DOMO_TRANSPORT
-    value: "http"
+  - name: PORT
+    value: "8000"
+  # Fixtures for now — flip to "live" once Domo tenant creds are set as App
+  # secrets (DOMO_CLIENT_ID / DOMO_CLIENT_SECRET).
   - name: PSEUDO_DOMO_PROVIDER
-    value: "fixture"   # switch to "live" once DOMO_CLIENT_ID/SECRET are set as App secrets
+    value: "fixture"
+  # Durable, shared state in Lakebase (scans, mappings, dispositions, config).
+  - name: PSEUDO_DOMO_STORE_BACKEND
+    value: "lakebase"
+  - name: PSEUDO_DOMO_LAKEBASE_INSTANCE
+    value: "welchco-lakebase"
+  # Optional LLM enhancement via a foundation-model pay-per-token endpoint.
+  # The app's service principal authenticates (no static token). Attach this
+  # endpoint as a "Model serving" resource with CAN_QUERY.
+  - name: PSEUDO_DOMO_LLM_ENDPOINT
+    value: "databricks-claude-sonnet-5"
