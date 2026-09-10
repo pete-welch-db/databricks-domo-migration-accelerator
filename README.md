@@ -238,9 +238,11 @@ databricks api post /api/2.0/database/instances/<instance>/roles -p $P --json '{
 }'
 ```
 
-**Redeploy** after attaching resources so the injected env is picked up. Verify
-with `GET /api/debug/store` (backend + connect error) and `/api/debug/llm`
-(a live model round-trip) — both behind the App's SSO.
+**Redeploy** after attaching resources so the injected env is picked up. To
+verify, set `PSEUDO_DOMO_DEBUG=1` in `app.yaml` and hit `GET /api/debug/store`
+(backend + connect error) and `/api/debug/llm` (a live model round-trip) — both
+behind the App's SSO, and both off unless the flag is set. Remove the flag once
+verified.
 
 ### Deploy the MCP app
 

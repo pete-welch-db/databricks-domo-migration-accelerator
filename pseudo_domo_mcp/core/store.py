@@ -25,8 +25,13 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 from abc import ABC, abstractmethod
+from functools import lru_cache
 from typing import Any, Dict, List
+
+# Recycle a Lakebase connection before its 1-hour OAuth token expires.
+_CONN_MAX_AGE_S = 2700  # 45 min
 
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _LOCAL_PATH = os.path.join(_REPO_ROOT, ".pseudo_domo_state.json")
@@ -98,13 +103,28 @@ class LakebaseStore(StateStore):
     def __init__(self, instance: str):
         self.instance = instance
         self._conn = None
+        self._born = 0.0        # monotonic time the current connection opened
         self._fallback = LocalStore()
         self._ok = False
-        self.last_error = ""  # last connect failure, for diagnostics
+        self.last_error = ""    # last connect failure, for diagnostics
+        # One connection is reused across requests (the store is a process
+        # singleton — see get_store), so serialize access: a psycopg3
+        # connection is not safe for concurrent use from FastAPI's threadpool.
+        self._lock = threading.Lock()
 
     def _connect(self):
-        if self._conn is not None:
+        # Reuse a live, non-expired connection; otherwise (re)connect with a
+        # fresh token. Recycling before the token TTL avoids a stale-token
+        # failure on a long-lived App process.
+        if (self._conn is not None and not self._conn.closed
+                and (time.monotonic() - self._born) < _CONN_MAX_AGE_S):
             return self._conn
+        if self._conn is not None:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+            self._conn = None
         try:
             import psycopg
             from databricks.sdk import WorkspaceClient
@@ -127,6 +147,7 @@ class LakebaseStore(StateStore):
                 sslmode=os.environ.get("PGSSLMODE", "require"), autocommit=True)
             self._ensure_tables()
             self._ok = True
+            self._born = time.monotonic()
             self.last_error = ""
             return self._conn
         except Exception as e:
@@ -144,35 +165,44 @@ class LakebaseStore(StateStore):
                     f"record JSONB NOT NULL, ts TIMESTAMPTZ DEFAULT now())")
 
     def append(self, collection, record):
-        if self._connect() is None:
-            return self._fallback.append(collection, record)
-        with self._conn.cursor() as cur:
-            cur.execute(f"INSERT INTO pseudo_domo_{collection} (record) VALUES (%s)",
-                        (json.dumps(record),))
+        with self._lock:
+            if self._connect() is None:
+                return self._fallback.append(collection, record)
+            with self._conn.cursor() as cur:
+                cur.execute(f"INSERT INTO pseudo_domo_{collection} (record) VALUES (%s)",
+                            (json.dumps(record),))
 
     def put(self, collection, key, record):
-        if self._connect() is None:
-            return self._fallback.put(collection, key, record)
-        with self._conn.cursor() as cur:
-            cur.execute(
-                f"INSERT INTO pseudo_domo_{collection} (key, record) VALUES (%s, %s) "
-                f"ON CONFLICT (key) DO UPDATE SET record = EXCLUDED.record",
-                (key, json.dumps(record)))
+        with self._lock:
+            if self._connect() is None:
+                return self._fallback.put(collection, key, record)
+            with self._conn.cursor() as cur:
+                cur.execute(
+                    f"INSERT INTO pseudo_domo_{collection} (key, record) VALUES (%s, %s) "
+                    f"ON CONFLICT (key) DO UPDATE SET record = EXCLUDED.record",
+                    (key, json.dumps(record)))
 
     def list(self, collection):
-        if self._connect() is None:
-            return self._fallback.list(collection)
-        with self._conn.cursor() as cur:
-            cur.execute(f"SELECT record FROM pseudo_domo_{collection} ORDER BY ts")
-            return [r[0] for r in cur.fetchall()]
+        with self._lock:
+            if self._connect() is None:
+                return self._fallback.list(collection)
+            with self._conn.cursor() as cur:
+                cur.execute(f"SELECT record FROM pseudo_domo_{collection} ORDER BY ts")
+                return [r[0] for r in cur.fetchall()]
 
     def backend(self):
         return "lakebase" if self._ok else "local (lakebase unavailable)"
 
 
 # --------------------------------------------------------------------------- #
+@lru_cache(maxsize=1)
 def get_store() -> StateStore:
-    """Build the configured store.
+    """Build the configured store, memoized to a process singleton.
+
+    Memoizing matters for the Lakebase backend: without it every load_config()
+    (several per request) would open — and leak — a fresh connection. The
+    singleton reuses one connection (recycled before token expiry, guarded by a
+    lock). Call get_store.cache_clear() when the backend selection changes.
 
     In an App the backend + instance come straight from injected env, so this
     never calls load_config (which itself reads the store for user prefs — that

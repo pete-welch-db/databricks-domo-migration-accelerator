@@ -61,10 +61,14 @@ class AppConfig:
         d["domo_secret_present"] = bool(os.environ.get("DOMO_CLIENT_SECRET"))
         d["git_token_present"] = bool(os.environ.get("GIT_TOKEN"))
         d["deploy_ready"] = bool(self.databricks_profile)
+        # Mirror llm.enabled(): in an App the SP token is minted via the SDK, so
+        # DATABRICKS_TOKEN is not required. Keep both reports consistent.
+        from .runtime import is_app
+        has_token = bool(os.environ.get("DATABRICKS_TOKEN")) or is_app()
         d["llm_enabled"] = bool(
             self.llm_endpoint
             and (self.databricks_host or os.environ.get("DATABRICKS_HOST"))
-            and os.environ.get("DATABRICKS_TOKEN"))
+            and has_token)
         return d
 
 
@@ -81,13 +85,17 @@ def _load_persisted() -> Dict[str, Any]:
         try:
             from .store import get_store
             rows = get_store().list("config")
-            return rows[-1] if rows else {}
+            latest = rows[-1] if rows else None
+            return latest if isinstance(latest, dict) else {}
         except Exception:
             return {}
     if os.path.exists(_CONFIG_PATH):
         try:
             with open(_CONFIG_PATH, "r", encoding="utf-8") as fh:
-                return json.load(fh)
+                data = json.load(fh)
+            # Tolerate a corrupt/hand-edited/older-format file that isn't an
+            # object — fall back to defaults rather than crashing every request.
+            return data if isinstance(data, dict) else {}
         except (json.JSONDecodeError, OSError):
             return {}
     return {}
@@ -133,4 +141,10 @@ def save_config(updates: Dict[str, Any]) -> AppConfig:
     else:
         with open(_CONFIG_PATH, "w", encoding="utf-8") as fh:
             json.dump(data, fh, indent=2)
+        # A backend/instance change here must rebuild the memoized store.
+        try:
+            from .store import get_store
+            get_store.cache_clear()
+        except Exception:
+            pass
     return cfg

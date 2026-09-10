@@ -364,9 +364,22 @@ def llm_status() -> Dict[str, Any]:
     return llm.status()
 
 
+# Diagnostics are opt-in: they disclose infra env presence and (for llm) fire a
+# real, billed serving-endpoint call. Off unless PSEUDO_DOMO_DEBUG is set.
+_DEBUG_ENABLED = bool(os.environ.get("PSEUDO_DOMO_DEBUG"))
+
+
+def _debug_disabled() -> JSONResponse:
+    return JSONResponse(
+        {"error": "debug endpoints disabled; set PSEUDO_DOMO_DEBUG=1 to enable"},
+        status_code=404)
+
+
 @app.get("/api/debug/store")
-def debug_store() -> Dict[str, Any]:
+def debug_store() -> Any:
     """Diagnostics for the persistence backend (env presence + connect error)."""
+    if not _DEBUG_ENABLED:
+        return _debug_disabled()
     info: Dict[str, Any] = {
         "mode": runtime.mode(),
         "pg_env": {k: bool(os.environ.get(k))
@@ -394,9 +407,11 @@ def debug_store() -> Dict[str, Any]:
 
 
 @app.get("/api/debug/llm")
-def debug_llm() -> Dict[str, Any]:
+def debug_llm() -> Any:
     """Live LLM round-trip: prove the endpoint actually answers (not just that
-    it's configured). Uses the deterministic fallback path, so it never errors."""
+    it's configured). Fires a real (billed) serving call, so it is gated."""
+    if not _DEBUG_ENABLED:
+        return _debug_disabled()
     st = llm.status()
     if not st["enabled"]:
         return {"status": st, "reply": None}
